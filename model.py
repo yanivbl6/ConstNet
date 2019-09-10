@@ -21,17 +21,14 @@ class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride):
         super(BasicBlock, self).__init__()
 
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.bn = nn.BatchNorm2d(in_planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(
+        self.conv = nn.Conv2d(
             in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.conv2 = nn.Conv2d(
-            out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False
         )
 
         self.equalInOut = in_planes == out_planes
+
         self.conv_res = nn.Conv2d(
             in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False
         )
@@ -44,18 +41,15 @@ class BasicBlock(nn.Module):
         if self.use_fixup:
             self.scale = nn.Parameter(torch.ones(1))
             self.biases = nn.ParameterList(
-                [nn.Parameter(torch.zeros(1)) for _ in range(4)]
+                [nn.Parameter(torch.zeros(1)) for _ in range(2)]
             )
 
             k = (
-                self.conv1.kernel_size[0]
-                * self.conv1.kernel_size[1]
-                * self.conv1.out_channels
+                self.conv.kernel_size[0]
+                * self.conv.kernel_size[1]
+                * self.conv.out_channels
             )
-            self.conv1.weight.data.normal_(
-                0, self.fixup_l ** (-0.5) * math.sqrt(2.0 / k)
-            )
-            self.conv2.weight.data.zero_()
+            self.conv.weight.data.zero_()
 
             if self.conv_res is not None:
                 k = (
@@ -67,23 +61,21 @@ class BasicBlock(nn.Module):
 
     def forward(self, x):
         if self.use_bn:
-            x_out = self.relu(self.bn1(x))
-            out = self.relu(self.bn2(self.conv1(x_out)))
+            x_out = self.relu(self.bn(x))
+            out = self.conv(x_out)
             if self.droprate > 0:
                 out = F.dropout(out, p=self.droprate, training=self.training)
-            out = self.conv2(out)
         else:
             x_out = self.relu(x + self.biases[0])
-            out = self.conv1(x_out) + self.biases[1]
-            out = self.relu(out) + self.biases[2]
+            out = self.conv(x_out) + self.biases[1]
             if self.droprate > 0:
                 out = F.dropout(out, p=self.droprate, training=self.training)
-            out = self.scale * self.conv2(out) + self.biases[3]
+            out = self.scale * out
 
         if self.equalInOut:
             return torch.add(x, out)
 
-        return torch.add(self.conv_res(x_out), out)
+        return torch.add(self.conv_res(x_out), out) ##probably useless
 
 
 class NetworkBlock(nn.Module):
