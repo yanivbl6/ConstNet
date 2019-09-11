@@ -111,8 +111,8 @@ class WideResNet(nn.Module):
 
         nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
 
-        assert (depth - 4) % 6 == 0, "You need to change the number of layers"
-        n = (depth - 4) / 6
+        assert (depth - 4) % 3 == 0, "You need to change the number of layers"
+        n = (depth - 4) / 3
 
         BasicBlock.droprate = droprate
         BasicBlock.use_bn = use_bn

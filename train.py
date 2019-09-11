@@ -22,6 +22,8 @@ from model import WideResNet
 from utils.cutout import Cutout
 from tensorboard_logger import configure, log_value
 
+from torch.utils.tensorboard import SummaryWriter
+
 
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
@@ -49,6 +51,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "--resume", default="", type=str, help="path to latest checkpoint (default: '')"
+)
+parser.add_argument(
+    "-d","--device", default="0", type=str, help="GPU Device"
 )
 parser.add_argument(
     "--name", default="WideResNet-28-10", type=str, help="name of experiment"
@@ -97,6 +102,9 @@ def main():
         mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
         std=[x / 255.0 for x in [63.0, 62.1, 66.7]],
     )
+
+    writer = SummaryWriter()
+
 
     if args.augment:
         transform_train = transforms.Compose(
@@ -157,7 +165,13 @@ def main():
     print(f"Number of model parameters: {param_num}")
 
     if torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
+        
+        start = int(args.device[0])
+        end  = int(args.device[2])+1
+        dev_list=[]
+        for i in range(start,end):
+            dev_list.append("cuda:%d" % i)
+        model = torch.nn.DataParallel(model, device_ids=dev_list)
     model = model.cuda()
 
     if args.resume:
@@ -183,9 +197,9 @@ def main():
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch + 1)
-        train(train_loader, model, criterion, optimizer, epoch)
+        train(train_loader, model, criterion, optimizer, epoch,writer)
 
-        prec1 = validate(val_loader, model, criterion, epoch)
+        prec1 = validate(val_loader, model, criterion, epoch,writer)
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
         save_checkpoint(
@@ -197,10 +211,12 @@ def main():
             is_best,
         )
 
+    writer.close()
+
     print("Best accuracy: ", best_prec1)
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch,writer):
     """Train for one epoch on the training set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -236,13 +252,17 @@ def train(train_loader, model, criterion, optimizer, epoch):
                 f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
                 f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
             )
+            niter = epoch*len(train_loader)+i
+            writer.add_scalar('Train/Loss', losses.val, niter)
+            writer.add_scalar('Train/Prec@1', top1.val, niter)
+
 
     if args.tensorboard:
         log_value("train_loss", losses.avg, epoch)
         log_value("train_acc", top1.avg, epoch)
 
 
-def validate(val_loader, model, criterion, epoch):
+def validate(val_loader, model, criterion, epoch, writer):
     """Perform validation on the validation set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -275,6 +295,11 @@ def validate(val_loader, model, criterion, epoch):
                 f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
                 f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
             )
+            niter = epoch*len(val_loader)+i
+            writer.add_scalar('Test/Loss', losses.val, niter)
+            writer.add_scalar('Test/Prec@1', top1.val, niter)
+
+
 
     print(f" * Prec@1 {top1.avg:.3f}")
 
