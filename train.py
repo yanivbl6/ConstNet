@@ -24,13 +24,14 @@ from tensorboard_logger import configure, log_value
 
 from torch.utils.tensorboard import SummaryWriter
 
+from torchviz import make_dot
 
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
 parser.add_argument("--layers", default=28, type=int, help="default: 28")
 parser.add_argument("--widen-factor", default=10, type=int, help="default: 10")
-parser.add_argument("--batchnorm", default=True, type=bool, help="apply BatchNorm")
-parser.add_argument("--fixup", default=True, type=bool, help="apply Fixup")
+parser.add_argument("--batchnorm", default=False, help="apply BatchNorm",  action='store_true')
+parser.add_argument("--fixup", default=False, help="apply Fixup", action='store_true'  )
 parser.add_argument("--droprate", default=0, type=float, help="default: 0.0")
 parser.add_argument("--cutout", default=False, type=bool, help="apply cutout")
 parser.add_argument("--length", default=16, type=int, help="length of the holes")
@@ -69,9 +70,6 @@ parser.add_argument(
 )
 parser.set_defaults(augment=True)
 
-best_prec1 = 0
-
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -90,10 +88,34 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+def draw(args,model):
+    misc = torch.zeros([args.batch_size,3,32,32])
+    dot = make_dot(model(misc), params= dict(model.named_parameters()))
+    dot.format = 'pdf'
+    if args.batchnorm:
+        dot.render("batchnorm-graph") 
+    elif args.fixup:
+        dot.render("fixup-graph")
+    else:
+        dot.render("no-fixup-no-bn-graph")
+    
+def justParse(txt=None):
+    if not txt:
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args(txt.split())
+    return args
 
-def main():
-    global args, best_prec1
-    args = parser.parse_args()
+        
+def main(txt=None):
+    if not txt:
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args(txt.split())
+    main2(args)
+    
+def main2(args):
+    best_prec1 = 0.0
 
     if args.tensorboard:
         configure(f"runs/{args.name}")
@@ -151,7 +173,10 @@ def main():
         shuffle=True,
         **kwargs,
     )
-
+    ##print("main bn:")
+    ##print(args.batchnorm)
+    ##print("main fixup:")
+    ##print(args.fixup)
     model = WideResNet(
         args.layers,
         args.dataset == "cifar10" and 10 or 100,
@@ -160,8 +185,11 @@ def main():
         use_bn=args.batchnorm,
         use_fixup=args.fixup,
     )
-
+    
+    draw(args,model)
+    
     param_num = sum([p.data.nelement() for p in model.parameters()])
+    
     print(f"Number of model parameters: {param_num}")
 
     if torch.cuda.device_count() > 1:
@@ -172,6 +200,7 @@ def main():
         for i in range(start,end):
             dev_list.append("cuda:%d" % i)
         model = torch.nn.DataParallel(model, device_ids=dev_list)
+
     model = model.cuda()
 
     if args.resume:
@@ -196,13 +225,13 @@ def main():
     )
 
     for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch + 1)
-        train(train_loader, model, criterion, optimizer, epoch,writer)
+        adjust_learning_rate(args,optimizer, epoch + 1)
+        train(args,train_loader, model, criterion, optimizer, epoch,writer)
 
-        prec1 = validate(val_loader, model, criterion, epoch,writer)
+        prec1 = validate(args,val_loader, model, criterion, epoch,writer)
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
-        save_checkpoint(
+        save_checkpoint(args,
             {
                 "epoch": epoch + 1,
                 "state_dict": model.state_dict(),
@@ -216,11 +245,13 @@ def main():
     print("Best accuracy: ", best_prec1)
 
 
-def train(train_loader, model, criterion, optimizer, epoch,writer):
+def train(args,train_loader, model, criterion, optimizer, epoch,writer):
     """Train for one epoch on the training set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+
+    
 
     model.train()
 
@@ -262,7 +293,7 @@ def train(train_loader, model, criterion, optimizer, epoch,writer):
         log_value("train_acc", top1.avg, epoch)
 
 
-def validate(val_loader, model, criterion, epoch, writer):
+def validate(args,val_loader, model, criterion, epoch, writer):
     """Perform validation on the validation set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -299,7 +330,8 @@ def validate(val_loader, model, criterion, epoch, writer):
             writer.add_scalar('Test/Loss', losses.val, niter)
             writer.add_scalar('Test/Prec@1', top1.val, niter)
 
-
+    writer.add_scalar('AvgTest/Prec@1', top1.avg, epoch)
+    writer.add_scalar('AvgTest/Loss', losses.avg, epoch)
 
     print(f" * Prec@1 {top1.avg:.3f}")
 
@@ -310,7 +342,7 @@ def validate(val_loader, model, criterion, epoch, writer):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
+def save_checkpoint(args,state, is_best, filename="checkpoint.pth.tar"):
     """Saves checkpoint to disk"""
     directory = "runs/%s/" % (args.name)
 
@@ -324,7 +356,7 @@ def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
         shutil.copyfile(filename, "runs/%s/" % (args.name) + "model_best.pth.tar")
 
 
-def adjust_learning_rate(optimizer, epoch):
+def adjust_learning_rate(args,optimizer, epoch):
     """Sets the learning rate to the initial LR divided by 5 at 60th, 120th and 160th epochs"""
     lr = args.lr * (
         (0.2 ** int(epoch >= 60))

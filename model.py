@@ -21,6 +21,10 @@ class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride):
         super(BasicBlock, self).__init__()
 
+        
+        ##print("Use fixup:")
+        ##print(self.use_fixup)
+        
         self.bn = nn.BatchNorm2d(in_planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv = nn.Conv2d(
@@ -118,6 +122,10 @@ class WideResNet(nn.Module):
         BasicBlock.use_bn = use_bn
         BasicBlock.fixup_l = n * 3
         BasicBlock.use_fixup = use_fixup
+        ##print("Use fixup WideResnet:")
+        ##print(use_fixup)
+        ##print("Use BN WideResnet:")
+        ##print(use_bn)
         block = BasicBlock
 
         self.conv1 = nn.Conv2d(
