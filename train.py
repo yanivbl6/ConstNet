@@ -18,6 +18,8 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
+from torch.autograd import Variable
+
 from model import WideResNet
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
@@ -25,7 +27,7 @@ from utils.radam import RAdam, AdamW
 from tensorboard_logger import configure, log_value
 
 from torch.utils.tensorboard import SummaryWriter
-
+import numpy as np
 from torchviz import make_dot
 
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
@@ -60,6 +62,9 @@ parser.add_argument("--nesterov", default=True, type=bool, help="nesterov moment
 parser.add_argument(
     "--weight-decay", "--wd", default=5e-4, type=float, help="default: 5e-4"
 )
+parser.add_argument('--alpha', default=1., type=float,
+                    help='mixup interpolation coefficient (default: 1)')
+
 parser.add_argument(
     "--resume", default="", type=str, help="path to latest checkpoint (default: '')"
 )
@@ -97,6 +102,28 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+def mixup_data(x, y, alpha=1.0, use_cuda=True):
+    '''Returns mixed inputs, pairs of targets, and lambda'''
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+
+    batch_size = x.size()[0]
+    if use_cuda:
+        index = torch.randperm(batch_size).cuda()
+    else:
+        index = torch.randperm(batch_size)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
 
 def draw(args,model):
     misc = torch.zeros([args.batch_size,3,32,32])
@@ -206,6 +233,7 @@ def main2(args):
         
         start = int(args.device[0])
         end  = int(args.device[2])+1
+        torch.cuda.set_device(start)
         dev_list=[]
         for i in range(start,end):
             dev_list.append("cuda:%d" % i)
@@ -268,20 +296,37 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
     
 
     model.train()
-
+    total =0 
+    correct = 0
+    reg_loss = 0.0
+    train_loss = 0.0
     end = time.time()
-    for i, (input, target) in enumerate(train_loader):
+    for i, (inputs, target) in enumerate(train_loader):
         target = target.cuda()
-        input = input.cuda()
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        inputs = inputs.cuda()
+        
+        inputs, targets_a, targets_b, lam = mixup_data(inputs, target, args.alpha, True)
+        inputs, targets_a, targets_b = map(Variable, (inputs, targets_a, targets_b))
 
-        output = model(input_var)
-        loss = criterion(output, target_var)
+        ##input_var = torch.autograd.Variable(input)
+        ##target_var = torch.autograd.Variable(target)
 
-        prec1 = accuracy(output.data, target, topk=(1,))[0]
-        losses.update(loss.data.item(), input.size(0))
-        top1.update(prec1.item(), input.size(0))
+        outputs = model(inputs)
+        ##loss = criterion(output, target_var)
+        loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+##        print("loss:")
+##        print(loss)
+##        print(loss.item())
+##        train_loss += loss.data[0]
+        train_loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total += target.size(0)
+        correct += (lam * predicted.eq(targets_a.data).cpu().sum().float()
+                    + (1 - lam) * predicted.eq(targets_b.data).cpu().sum().float())
+
+##        prec1 = accuracy(output.data, target, topk=(1,))[0]
+##        losses.update(loss.data.item(), input.size(0))
+##        top1.update(prec1.item(), input.size(0))
 
         optimizer.zero_grad()
         loss.backward()
@@ -290,8 +335,8 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
-            if 0:
+        if 0:
+            if i % args.print_freq == 0:
                 print(
                     f"Epoch: [{epoch}][{i}/{len(train_loader)}]\t"
                     f"Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
@@ -299,13 +344,14 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
                     f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
                 )
             niter = epoch*len(train_loader)+i
-            writer.add_scalar('Train/Loss', losses.val, niter)
-            writer.add_scalar('Train/Prec@1', top1.val, niter)
-
 
     if args.tensorboard:
-        log_value("train_loss", losses.avg, epoch)
-        log_value("train_acc", top1.avg, epoch)
+        batch_idx = i
+        writer.add_scalar('Train/Loss', train_loss/batch_idx, epoch)
+        writer.add_scalar('Train/Prec@1', 100.*correct/total, epoch)
+##        writer.add_scalar('Train/RegLoss', reg_loss/batch_idx, niter)
+
+
 
 
 def validate(args,val_loader, model, criterion, epoch, writer):
@@ -320,8 +366,8 @@ def validate(args,val_loader, model, criterion, epoch, writer):
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda()
         input = input.cuda()
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        input_var = Variable(input)
+        target_var = Variable(target)
 
         with torch.no_grad():
             output = model(input_var)
