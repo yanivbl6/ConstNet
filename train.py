@@ -20,6 +20,8 @@ import torchvision.datasets as datasets
 
 from model import WideResNet
 from utils.cutout import Cutout
+from utils.radam import RAdam, AdamW
+
 from tensorboard_logger import configure, log_value
 
 from torch.utils.tensorboard import SummaryWriter
@@ -42,6 +44,14 @@ parser.add_argument(
 parser.add_argument("--epochs", default=200, type=int, help="default: 200")
 parser.add_argument("--start-epoch", default=0, type=int, help="epoch for restart")
 parser.add_argument("-b", "--batch-size", default=128, type=int, help="default: 128")
+
+parser.add_argument('--optimizer', default='sgd', type=str, choices=['radam', 'sgd'])
+
+parser.add_argument('--beta1', default=0.9, type=float,
+                    help='beta1 for adam')
+parser.add_argument('--beta2', default=0.999, type=float,
+                    help='beta2 for adam')
+
 parser.add_argument(
     "--lr", "--learning-rate", default=0.1, type=float, help="default: 0.1"
 )
@@ -216,13 +226,17 @@ def main2(args):
 
     cudnn.benchmark = True
     criterion = nn.CrossEntropyLoss().cuda()
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        args.lr,
-        momentum=args.momentum,
-        nesterov=args.nesterov,
-        weight_decay=args.weight_decay,
-    )
+
+    if args.optimizer.lower() == 'sgd':
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            args.lr,
+            momentum=args.momentum,
+            nesterov=args.nesterov,
+            weight_decay=args.weight_decay,
+        )
+    elif args.optimizer.lower() == 'radam':
+        optimizer = RAdam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(args,optimizer, epoch + 1)
@@ -277,12 +291,13 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
         end = time.time()
 
         if i % args.print_freq == 0:
-            print(
-                f"Epoch: [{epoch}][{i}/{len(train_loader)}]\t"
-                f"Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
-                f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
-                f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
-            )
+            if 0:
+                print(
+                    f"Epoch: [{epoch}][{i}/{len(train_loader)}]\t"
+                    f"Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
+                    f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
+                    f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
+                )
             niter = epoch*len(train_loader)+i
             writer.add_scalar('Train/Loss', losses.val, niter)
             writer.add_scalar('Train/Prec@1', top1.val, niter)
@@ -320,12 +335,13 @@ def validate(args,val_loader, model, criterion, epoch, writer):
         end = time.time()
 
         if i % args.print_freq == 0:
-            print(
-                f"Test: [{i}/{len(val_loader)}]\t"
-                f"Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
-                f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
-                f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
-            )
+            if 0:
+                print(
+                    f"Test: [{i}/{len(val_loader)}]\t"
+                    f"Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
+                    f"Loss {losses.val:.4f} ({losses.avg:.4f})\t"
+                    f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
+                )
             niter = epoch*len(val_loader)+i
             writer.add_scalar('Test/Loss', losses.val, niter)
             writer.add_scalar('Test/Prec@1', top1.val, niter)
