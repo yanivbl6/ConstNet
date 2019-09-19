@@ -170,4 +170,48 @@ class WideResNet(nn.Module):
         out = self.relu(out)
         out = F.avg_pool2d(out, 8)
         out = out.view(-1, self.nChannels)
+
+
+
+
+
+
+def genOrthgonal(dim):
+    a = torch.zeros((dim, dim)).normal_(0, 1)
+    q, r = torch.qr(a)
+    d = torch.diag(r, 0).sign()
+    diag_size = d.size(0)
+    d_exp = d.view(1, diag_size).expand(diag_size, diag_size)
+    q.mul_(d_exp)
+    return q
+
+
+
+
+def makeLambdaDeltaOrthogonal(init_lambda ,weights, bias, gain):
+
+    IL = init_lambda
+
+    rows = weights.size(0)
+    cols = weights.size(1)
+    if rows > cols:
+        IL = 1.0 ## For non features, we fall back to  kaiming normal init
+
+
+
+    nn.init.kaiming_normal_(weights, mode='fan_out', nonlinearity='relu')
+    if bias is not None:
+        nn.init.constant_(bias, 0)
+
+    weights = weights.mul(IL)
+
+    init_delta = 1.0 - IL
+
+    dim = max(rows, cols)
+    q = genOrthgonal(dim)
+    mid1 = weights.size(2) // 2
+    mid2 = weights.size(3) // 2
+    weights[:, :, mid1, mid2] += q[:weights.size(0), :weights.size(1)].mul_(gain* init_delta )
+
+
         return self.fc(out)

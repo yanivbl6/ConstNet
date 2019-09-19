@@ -345,10 +345,9 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
                 )
             niter = epoch*len(train_loader)+i
 
-    if args.tensorboard:
-        batch_idx = i
-        writer.add_scalar('Train/Loss', train_loss/batch_idx, epoch)
-        writer.add_scalar('Train/Prec@1', 100.*correct/total, epoch)
+    batch_idx = i
+    writer.add_scalar('Train/Loss', train_loss/batch_idx, epoch)
+    writer.add_scalar('Train/Prec@1', 100.*correct/total, epoch)
 ##        writer.add_scalar('Train/RegLoss', reg_loss/batch_idx, niter)
 
 
