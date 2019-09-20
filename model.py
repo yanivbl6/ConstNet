@@ -136,8 +136,9 @@ class WideResNet(nn.Module):
             * self.conv1.kernel_size[1]
             * self.conv1.out_channels
         )
-        self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
+        ##self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
 
+        makeLambdaDeltaOrthogonal(0.0 , self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
         self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
@@ -149,14 +150,6 @@ class WideResNet(nn.Module):
         self.fc.bias.data.zero_()
         if use_fixup:
             self.fc.weight.data.zero_()
-
-        k = (
-            self.conv1.kernel_size[0]
-            * self.conv1.kernel_size[1]
-            * self.conv1.out_channels
-        )
-        self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
-
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -170,8 +163,7 @@ class WideResNet(nn.Module):
         out = self.relu(out)
         out = F.avg_pool2d(out, 8)
         out = out.view(-1, self.nChannels)
-
-
+        return self.fc(out)
 
 
 
@@ -214,4 +206,3 @@ def makeLambdaDeltaOrthogonal(init_lambda ,weights, bias, gain):
     weights[:, :, mid1, mid2] += q[:weights.size(0), :weights.size(1)].mul_(gain* init_delta )
 
 
-        return self.fc(out)
