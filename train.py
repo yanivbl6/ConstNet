@@ -162,7 +162,7 @@ def main2(args):
         std=[x / 255.0 for x in [63.0, 62.1, 66.7]],
     )
 
-    writer = SummaryWriter()
+    writer = SummaryWriter(log_dir="runs/%s" % args.name  ,comment=str(args))
 
 
     if args.augment:
@@ -405,16 +405,22 @@ def validate(args,val_loader, model, criterion, epoch, writer):
 
 def save_checkpoint(args,state, is_best, filename="checkpoint.pth.tar"):
     """Saves checkpoint to disk"""
-    directory = "runs/%s/" % (args.name)
+    directory = "runs/%s-net/" % (args.name)
 
     if not os.path.exists(directory):
         os.makedirs(directory)
+
+
+    epoch = state['epoch']
 
     filename = directory + filename
     torch.save(state, filename)
 
     if is_best:
-        shutil.copyfile(filename, "runs/%s/" % (args.name) + "model_best.pth.tar")
+        shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_best.pth.tar")
+
+    if epoch<=3:
+        shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_epoch_%d.pth.tar" % epoch )
 
 
 def adjust_learning_rate(args,optimizer, epoch):

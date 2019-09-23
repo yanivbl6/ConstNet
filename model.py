@@ -79,7 +79,7 @@ class BasicBlock(nn.Module):
         if self.equalInOut:
             return torch.add(x, out)
 
-        return torch.add(self.conv_res(x_out), out) ##probably useless
+        return torch.add(self.conv_res(x_out), out)
 
 
 class NetworkBlock(nn.Module):
@@ -138,7 +138,7 @@ class WideResNet(nn.Module):
         )
         ##self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
 
-        makeLambdaDeltaOrthogonal(0.0 , self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
+        makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
         self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
@@ -180,29 +180,25 @@ def genOrthgonal(dim):
 
 
 
-def makeLambdaDeltaOrthogonal(init_lambda ,weights, bias, gain):
+def makeLambdaDeltaOrthogonal(weights, bias, gain):
 
-    IL = init_lambda
 
     rows = weights.size(0)
     cols = weights.size(1)
-    if rows > cols:
-        IL = 1.0 ## For non features, we fall back to  kaiming normal init
 
 
 
-    nn.init.kaiming_normal_(weights, mode='fan_out', nonlinearity='relu')
     if bias is not None:
         nn.init.constant_(bias, 0)
 
-    weights = weights.mul(IL)
-
-    init_delta = 1.0 - IL
+##    nn.init.kaiming_normal_(weights, mode='fan_out', nonlinearity='relu')
 
     dim = max(rows, cols)
-    q = genOrthgonal(dim)
+##    q = genOrthgonal(dim)
     mid1 = weights.size(2) // 2
     mid2 = weights.size(3) // 2
-    weights[:, :, mid1, mid2] += q[:weights.size(0), :weights.size(1)].mul_(gain* init_delta )
+##    weights[:, :, mid1, mid2] += q[:weights.size(0), :weights.size(1)].mul_(gain)
+    nn.init.constant_(weights, 0)
+    weights.data[:, :, mid1, mid2] = gain ##torch.ones([rows, cols]) * gain
 
 
