@@ -61,7 +61,8 @@ class BasicBlock(nn.Module):
                     * self.conv_res.kernel_size[1]
                     * self.conv_res.out_channels
                 )
-                self.conv_res.weight.data.normal_(0, math.sqrt(2.0 / k))
+                ##self.conv_res.weight.data.normal_(0, math.sqrt(2.0 / k))
+                self.conv_res.weight.data.fill_(2.0 / k)
 
     def forward(self, x):
         if self.use_bn:
