@@ -30,6 +30,9 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from torchviz import make_dot
 
+import prunhild
+
+
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
 parser.add_argument("--layers", default=28, type=int, help="default: 28")
@@ -62,8 +65,8 @@ parser.add_argument("--nesterov", default=True, type=bool, help="nesterov moment
 parser.add_argument(
     "--weight-decay", "--wd", default=5e-4, type=float, help="default: 5e-4"
 )
-parser.add_argument('--alpha', default=1., type=float,
-                    help='mixup interpolation coefficient (default: 1)')
+parser.add_argument('--alpha', default=0.0, type=float,
+                    help='mixup interpolation coefficient (default: 0.0)')
 
 parser.add_argument(
     "--resume", default="", type=str, help="path to latest checkpoint (default: '')"
@@ -83,6 +86,21 @@ parser.add_argument(
     action="store_false",
     help="whether to use standard augmentation (default: True)",
 )
+
+parser.add_argument(
+    "--prune", default="", type=str, help="path to checkpoint to prone"
+)
+
+parser.add_argument(
+    "--prune_epoch", default=0, type=int, help="base epoch to use weights from"
+)
+
+parser.add_argument(
+    "--cutoff", default=0.15, type=float, help="ratio of weights to keep"
+)
+
+parser.add_argument("--eval", default=False, action='store_true' , help="evaluation only")
+
 parser.set_defaults(augment=True)
 
 class AverageMeter(object):
@@ -143,13 +161,70 @@ def justParse(txt=None):
         args = parser.parse_args(txt.split())
     return args
 
+def getPruneMask(args):
+    baseTar =  "runs/%s-net/checkpoint.pth.tar" % args.prune
+    if os.path.isfile(baseTar):
+        fullModel = WideResNet(
+            args.layers,
+            args.dataset == "cifar10" and 10 or 100,
+            args.widen_factor,
+            droprate=args.droprate,
+            use_bn=args.batchnorm,
+            use_fixup=args.fixup,
+        )
+
+
+        if torch.cuda.device_count() > 1:
+            
+            start = int(args.device[0])
+            end  = int(args.device[2])+1
+            torch.cuda.set_device(start)
+            dev_list=[]
+            for i in range(start,end):
+                dev_list.append("cuda:%d" % i)
+            fullModel = torch.nn.DataParallel(fullModel, device_ids=dev_list)
+
+        fullModel = fullModel.cuda()
+
+
+        print(f"=> loading checkpoint {baseTar}")
+
+        checkpoint = torch.load(baseTar)
+        fullModel.load_state_dict(checkpoint["state_dict"])
+
+
+        # --------------------------- #
+        # --- Pruning Setup Start --- #
+
+        cutoff = prunhild.cutoff.LocalRatioCutoff(args.cutoff)
+        # don't prune the final bias weights
+        params = list(fullModel.parameters())[:-1]
+        pruner = prunhild.pruner.CutoffPruner(params, cutoff, prune_online=True)
+        pruner.prune()
+       
+        print(f"=> loaded checkpoint '{baseTar}' (epoch {checkpoint['epoch']})")
+
+        if torch.cuda.device_count() > 1:
+            start = int(args.device[0])
+            end  = int(args.device[2])+1
+            for i in range(start,end):
+                torch.cuda.set_device(i)
+                torch.cuda.empty_cache()
+
+        return pruner.state_dict()
+    else:
+        print(f"=> no checkpoint found at {baseTar}")
+        return None
+
+
+
         
 def main(txt=None):
     if not txt:
         args = parser.parse_args()
     else:
         args = parser.parse_args(txt.split())
-    main2(args)
+    return main2(args)
     
 def main2(args):
     best_prec1 = 0.0
@@ -214,6 +289,12 @@ def main2(args):
     ##print(args.batchnorm)
     ##print("main fixup:")
     ##print(args.fixup)
+
+    if args.prune :
+        pruner_state = getPruneMask(args)
+
+
+
     model = WideResNet(
         args.layers,
         args.dataset == "cifar10" and 10 or 100,
@@ -241,16 +322,36 @@ def main2(args):
 
     model = model.cuda()
 
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print(f"=> loading checkpoint {args.resume}")
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint["epoch"]
-            best_prec1 = checkpoint["best_prec1"]
-            model.load_state_dict(checkpoint["state_dict"])
-            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+
+
+    if args.prune and args.prune_epoch > 0: 
+        if  args.prune_epoch >= 100:
+            weightsFile =  "runs/%s-net/checkpoint.pth.tar" % args.prune
         else:
-            print(f"=> no checkpoint found at {args.resume}")
+            weightsFile =  "runs/%s-net/model_epoch_%d.pth.tar" % (args.prune, args.prune_epoch)
+
+        if os.path.isfile(weightsFile):
+            print(f"=> loading checkpoint {weightsFile}")
+            checkpoint = torch.load(weightsFile)
+            model.load_state_dict(checkpoint["state_dict"])
+            print(f"=> loaded checkpoint '{weightsFile}' (epoch {checkpoint['epoch']})")
+        else:
+            print(f"=> no checkpoint found at {weightsFile}")
+
+
+
+    else:
+        if args.resume:
+            if os.path.isfile(args.resume):
+                print(f"=> loading checkpoint {args.resume}")
+                checkpoint = torch.load(args.resume)
+                args.start_epoch = checkpoint["epoch"]
+                best_prec1 = checkpoint["best_prec1"]
+                model.load_state_dict(checkpoint["state_dict"])
+                print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+            else:
+                print(f"=> no checkpoint found at {args.resume}")
+
 
     cudnn.benchmark = True
     criterion = nn.CrossEntropyLoss().cuda()
@@ -266,28 +367,41 @@ def main2(args):
     elif args.optimizer.lower() == 'radam':
         optimizer = RAdam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
 
-    for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(args,optimizer, epoch + 1)
-        train(args,train_loader, model, criterion, optimizer, epoch,writer)
+    if args.prune and pruner_state is not None:
+        cutoff_retrain = prunhild.cutoff.LocalRatioCutoff(args.cutoff)
+        params_retrain = list(model.parameters())[:-1]
+        pruner_retrain = prunhild.pruner.CutoffPruner(params_retrain, cutoff_retrain)
+        pruner_retrain.load_state_dict(pruner_state) 
+        pruner_retrain.prune(update_state=False)
+    else:
+        pruner_retrain = None
 
-        prec1 = validate(args,val_loader, model, criterion, epoch,writer)
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
-        save_checkpoint(args,
-            {
-                "epoch": epoch + 1,
-                "state_dict": model.state_dict(),
-                "best_prec1": best_prec1,
-            },
-            is_best,
-        )
+    if args.eval:
+        best_prec1 = validate(args,val_loader, model, criterion, 0,None)
+    else:
+        for epoch in range(args.start_epoch, args.epochs):
+            adjust_learning_rate(args,optimizer, epoch + 1)
+            train(args,train_loader, model, criterion, optimizer, epoch, pruner_retrain, writer)
+
+            prec1 = validate(args,val_loader, model, criterion, epoch,writer)
+            is_best = prec1 > best_prec1
+            best_prec1 = max(prec1, best_prec1)
+            save_checkpoint(args,
+                {
+                    "epoch": epoch + 1,
+                    "state_dict": model.state_dict(),
+                    "best_prec1": best_prec1,
+                },
+                is_best,
+            )
 
     writer.close()
 
     print("Best accuracy: ", best_prec1)
+    return best_prec1
 
 
-def train(args,train_loader, model, criterion, optimizer, epoch,writer):
+def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer):
     """Train for one epoch on the training set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -302,6 +416,7 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
     train_loss = 0.0
     end = time.time()
     for i, (inputs, target) in enumerate(train_loader):
+
         target = target.cuda()
         inputs = inputs.cuda()
         
@@ -331,6 +446,9 @@ def train(args,train_loader, model, criterion, optimizer, epoch,writer):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if pruner is not None:
+            pruner.prune(update_state=False)
 
         batch_time.update(time.time() - end)
         end = time.time()
@@ -388,17 +506,19 @@ def validate(args,val_loader, model, criterion, epoch, writer):
                     f"Prec@1 {top1.val:.3f} ({top1.avg:.3f})"
                 )
             niter = epoch*len(val_loader)+i
-            writer.add_scalar('Test/Loss', losses.val, niter)
-            writer.add_scalar('Test/Prec@1', top1.val, niter)
+            ##writer.add_scalar('Test/Loss', losses.val, niter)
+            ##writer.add_scalar('Test/Prec@1', top1.val, niter)
 
-    writer.add_scalar('AvgTest/Prec@1', top1.avg, epoch)
-    writer.add_scalar('AvgTest/Loss', losses.avg, epoch)
+    if writer is not None:
+        writer.add_scalar('AvgTest/Prec@1', top1.avg, epoch)
+        writer.add_scalar('AvgTest/Loss', losses.avg, epoch)
+        if args.tensorboard:
+            log_value("val_loss", losses.avg, epoch)
+            log_value("val_acc", top1.avg, epoch)
+
+
 
     print(f" * Prec@1 {top1.avg:.3f}")
-
-    if args.tensorboard:
-        log_value("val_loss", losses.avg, epoch)
-        log_value("val_acc", top1.avg, epoch)
 
     return top1.avg
 
