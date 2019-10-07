@@ -143,6 +143,8 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
+
+
 def draw(args,model):
     misc = torch.zeros([args.batch_size,3,32,32])
     dot = make_dot(model(misc), params= dict(model.named_parameters()))
@@ -160,6 +162,21 @@ def justParse(txt=None):
     else:
         args = parser.parse_args(txt.split())
     return args
+
+def intersection(lst1, lst2): 
+    lst3 = [value for value in lst1 if value in lst2] 
+    return lst3 
+
+def prune_on(args,str):
+    if intersection(['bn','scale','conv_res','fc'],str.split('.')):
+        return False
+    return True
+
+def get_params_for_pruning(args,model):
+    return [param for param,name in zip(list(model.parameters()),list(model.named_parameters())) if prune_on(args,name[0])]
+
+def count_pruned_weights(parameters, cutoff = 1.0):
+    return int(np.sum([param.nelement() for  param in parameters]) * (cutoff))
 
 def getPruneMask(args):
     baseTar =  "runs/%s-net/checkpoint.pth.tar" % args.prune
@@ -198,7 +215,7 @@ def getPruneMask(args):
 
         cutoff = prunhild.cutoff.LocalRatioCutoff(args.cutoff)
         # don't prune the final bias weights
-        params = list(fullModel.parameters())[:-1]
+        params = get_params_for_pruning(args,fullModel)
         pruner = prunhild.pruner.CutoffPruner(params, cutoff, prune_online=True)
         pruner.prune()
        
@@ -215,9 +232,6 @@ def getPruneMask(args):
     else:
         print(f"=> no checkpoint found at {baseTar}")
         return None
-
-
-
         
 def main(txt=None):
     if not txt:
@@ -369,10 +383,14 @@ def main2(args):
 
     if args.prune and pruner_state is not None:
         cutoff_retrain = prunhild.cutoff.LocalRatioCutoff(args.cutoff)
-        params_retrain = list(model.parameters())[:-1]
+        params_retrain = get_params_for_pruning(args,model)
         pruner_retrain = prunhild.pruner.CutoffPruner(params_retrain, cutoff_retrain)
         pruner_retrain.load_state_dict(pruner_state) 
         pruner_retrain.prune(update_state=False)
+        pruned_weights_count = count_pruned_weights(params_retrain, args.cutoff)
+        params_left = param_num - pruned_weights_count
+        print("Pruned %d weights, New model size:  %d/%d (%d%%)"  % (pruned_weights_count, params_left ,param_num, int(100*params_left/param_num) ))
+        
     else:
         pruner_retrain = None
 
