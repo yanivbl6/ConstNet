@@ -15,6 +15,9 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
+
+import torchvision
+
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
@@ -23,6 +26,8 @@ from torch.autograd import Variable
 from model import WideResNet
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
+from utils.imgnet import IMGNET
+
 
 from tensorboard_logger import configure, log_value
 
@@ -44,7 +49,7 @@ parser.add_argument("--cutout", default=False, type=bool, help="apply cutout")
 parser.add_argument("--length", default=16, type=int, help="length of the holes")
 parser.add_argument("--n_holes", default=1, type=int, help="number of holes to cut out")
 parser.add_argument(
-    "--dataset", default="cifar10", type=str, help="cifar10 [default] or cifar100"
+    "--dataset", default="cifar10", type=str, help="cifar10 [default], cifar100, cinic10, imgnet10 or imgnet100"
 )
 parser.add_argument("--epochs", default=200, type=int, help="default: 200")
 parser.add_argument("--start-epoch", default=0, type=int, help="epoch for restart")
@@ -183,7 +188,7 @@ def getPruneMask(args):
     if os.path.isfile(baseTar):
         fullModel = WideResNet(
             args.layers,
-            args.dataset == "cifar10" and 10 or 100,
+            args.classes,
             args.widen_factor,
             droprate=args.droprate,
             use_bn=args.batchnorm,
@@ -239,19 +244,36 @@ def main(txt=None):
     else:
         args = parser.parse_args(txt.split())
     return main2(args)
-    
+
+def nondigits(txt):
+    return ''.join([i for i in txt if not i.isdigit()])
+
+def onlydigits(txt):
+    return int(''.join([i for i in txt if i.isdigit()]))
+
+
 def main2(args):
     best_prec1 = 0.0
 
     if args.tensorboard:
         configure(f"runs/{args.name}")
 
+    dstype = nondigits(args.dataset)
+    if dstype ==  "cifar":
+        means = [125.3, 123.0, 113.9]
+        stds =  [63.0, 62.1, 66.7]
+    elif dstype ==  "imgnet":
+        means = [123.3, 118.1, 108.0]
+        stds =  [54.1, 52.6, 53.2]
+
     normalize = transforms.Normalize(
-        mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
-        std=[x / 255.0 for x in [63.0, 62.1, 66.7]],
+        mean=[x / 255.0 for x in means],
+        std=[x / 255.0 for x in stds],
     )
 
+
     writer = SummaryWriter(log_dir="runs/%s" % args.name  ,comment=str(args))
+    args.classes =  onlydigits(args.dataset)
 
 
     if args.augment:
@@ -281,24 +303,59 @@ def main2(args):
     transform_test = transforms.Compose([transforms.ToTensor(), normalize])
 
     kwargs = {"num_workers": 1, "pin_memory": True}
-    assert args.dataset == "cifar10" or args.dataset == "cifar100"
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.__dict__[args.dataset.upper()](
-            "../data", train=True, download=True, transform=transform_train
-        ),
-        batch_size=args.batch_size,
-        shuffle=True,
-        **kwargs,
-    )
-    val_loader = torch.utils.data.DataLoader(
-        datasets.__dict__[args.dataset.upper()](
-            "../data", train=False, transform=transform_test
-        ),
-        batch_size=args.batch_size,
-        shuffle=True,
-        **kwargs,
-    )
+
+    assert dstype in ["cifar","cinic","imgnet"]
+
+    if dstype == "cifar": 
+        train_loader = torch.utils.data.DataLoader(
+            datasets.__dict__[args.dataset.upper()](
+                "../data", train=True, download=True, transform=transform_train
+            ),
+            batch_size=args.batch_size,
+            shuffle=True,
+            **kwargs,
+        )
+        val_loader = torch.utils.data.DataLoader(
+            datasets.__dict__[args.dataset.upper()](
+                "../data", train=False, transform=transform_test
+            ),
+            batch_size=args.batch_size,
+            shuffle=True,
+            **kwargs,
+        )
+    elif  dstype == "cinic":
+        cinic_directory = '/home/ehoffer/Datasets/cinic10'
+        cinic_mean = [0.47889522, 0.47227842, 0.43047404]
+        cinic_std = [0.24205776, 0.23828046, 0.25874835]
+        train_loader = torch.utils.data.DataLoader(
+            torchvision.datasets.ImageFolder(cinic_directory + '/train',
+                transform=transforms.Compose([transforms.ToTensor(),
+                transforms.Normalize(mean=cinic_mean,std=cinic_std)])),
+            batch_size=args.batch_size, shuffle=True, **kwargs,)
+        print("Using CINIC10 dataset")
+        val_loader = torch.utils.data.DataLoader(
+            torchvision.datasets.ImageFolder(cinic_directory + '/valid',
+                transform=transforms.Compose([transforms.ToTensor(),
+                transforms.Normalize(mean=cinic_mean,std=cinic_std)])),
+            batch_size=args.batch_size, shuffle=True, **kwargs,)
+    elif dstype == "imgnet":
+        print("Using converted imagenet")
+        train_loader = torch.utils.data.DataLoader(
+            IMGNET("/home/ehoffer/Datasets/", train=True, transform=transform_train, target_transform=None, classes = args.classes),
+            batch_size=args.batch_size,
+            shuffle=True,
+            **kwargs,
+        )
+        val_loader = torch.utils.data.DataLoader(
+            IMGNET("/home/ehoffer/Datasets/", train=False, transform=transform_test, target_transform=None, classes = args.classes),
+            batch_size=args.batch_size,
+            shuffle=True,
+            **kwargs,
+        )
+    else:
+        print("Error matching dataset %s" % dstype)
+
     ##print("main bn:")
     ##print(args.batchnorm)
     ##print("main fixup:")
@@ -311,7 +368,7 @@ def main2(args):
 
     model = WideResNet(
         args.layers,
-        args.dataset == "cifar10" and 10 or 100,
+        args.classes,
         args.widen_factor,
         droprate=args.droprate,
         use_bn=args.batchnorm,
@@ -356,15 +413,16 @@ def main2(args):
 
     else:
         if args.resume:
-            if os.path.isfile(args.resume):
+            tarfile = "runs/%s-net/checkpoint.pth.tar" % args.resume 
+            if os.path.isfile(tarfile):
                 print(f"=> loading checkpoint {args.resume}")
-                checkpoint = torch.load(args.resume)
+                checkpoint = torch.load(tarfile)
                 args.start_epoch = checkpoint["epoch"]
                 best_prec1 = checkpoint["best_prec1"]
                 model.load_state_dict(checkpoint["state_dict"])
-                print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+                print(f"=> loaded checkpoint '{tarfile}' (epoch {checkpoint['epoch']})")
             else:
-                print(f"=> no checkpoint found at {args.resume}")
+                print(f"=> no checkpoint found at {tarfile}")
 
 
     cudnn.benchmark = True
@@ -557,7 +615,7 @@ def save_checkpoint(args,state, is_best, filename="checkpoint.pth.tar"):
     if is_best:
         shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_best.pth.tar")
 
-    if epoch<=3:
+    if epoch<=1:
         shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_epoch_%d.pth.tar" % epoch )
 
 
