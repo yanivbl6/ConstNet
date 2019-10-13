@@ -51,6 +51,8 @@ parser.add_argument("--n_holes", default=1, type=int, help="number of holes to c
 parser.add_argument(
     "--dataset", default="cifar10", type=str, help="cifar10 [default], cifar100, cinic10, imgnet10 or imgnet100"
 )
+
+
 parser.add_argument("--epochs", default=200, type=int, help="default: 200")
 parser.add_argument("--start-epoch", default=0, type=int, help="epoch for restart")
 parser.add_argument("-b", "--batch-size", default=128, type=int, help="default: 128")
@@ -93,6 +95,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--no-saves",
+    dest="savenet",
+    action="store_false",
+    help="whether to save networks weights (default: True)",
+)
+
+parser.add_argument(
     "--prune", default="", type=str, help="path to checkpoint to prone"
 )
 
@@ -101,10 +110,21 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--prune_classes", default=0, type=int, help="Number of classes in the source pruned network (0- same as current dataset)"
+)
+
+parser.add_argument("--randomize_mask", default=False, action='store_true' , help="Use random mask for pruning")
+
+
+parser.add_argument(
     "--cutoff", default=0.15, type=float, help="ratio of weights to keep"
 )
 
-parser.add_argument("--eval", default=False, action='store_true' , help="evaluation only")
+parser.add_argument("--eval", default=False, action='store_true' , help="Evaluation only")
+
+
+
+
 
 parser.set_defaults(augment=True)
 
@@ -183,12 +203,26 @@ def get_params_for_pruning(args,model):
 def count_pruned_weights(parameters, cutoff = 1.0):
     return int(np.sum([param.nelement() for  param in parameters]) * (cutoff))
 
+def randomize_mask(mask,cutoff):
+    st = mask['state']
+    for k in st.keys():
+        m = st[k]['prune_mask']
+        mshape = (m.shape)
+        m.data = torch.bernoulli(0.30 * torch.ones(mshape))
+    return mask
+
 def getPruneMask(args):
     baseTar =  "runs/%s-net/checkpoint.pth.tar" % args.prune
     if os.path.isfile(baseTar):
+        
+
+        classes = args.prune_classes
+        if classes == 0:
+            classes = args.classes
+
         fullModel = WideResNet(
             args.layers,
-            args.classes,
+            classes,
             args.widen_factor,
             droprate=args.droprate,
             use_bn=args.batchnorm,
@@ -233,7 +267,11 @@ def getPruneMask(args):
                 torch.cuda.set_device(i)
                 torch.cuda.empty_cache()
 
-        return pruner.state_dict()
+        mask = pruner.state_dict()
+        if args.randomize_mask:
+            mask = randomize_mask(mask,args.cutoff)
+
+        return mask
     else:
         print(f"=> no checkpoint found at {baseTar}")
         return None
@@ -462,14 +500,16 @@ def main2(args):
             prec1 = validate(args,val_loader, model, criterion, epoch,writer)
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
-            save_checkpoint(args,
-                {
-                    "epoch": epoch + 1,
-                    "state_dict": model.state_dict(),
-                    "best_prec1": best_prec1,
-                },
-                is_best,
-            )
+
+            if args.savenet:
+                save_checkpoint(args,
+                    {
+                        "epoch": epoch + 1,
+                        "state_dict": model.state_dict(),
+                        "best_prec1": best_prec1,
+                    },
+                    is_best,
+                )
 
     writer.close()
 
