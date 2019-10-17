@@ -17,7 +17,7 @@ class BasicBlock(nn.Module):
     use_bn = True
     use_fixup = False
     fixup_l = 12
-
+    varnet = False
     def __init__(self, in_planes, out_planes, stride):
         super(BasicBlock, self).__init__()
 
@@ -53,7 +53,13 @@ class BasicBlock(nn.Module):
                 * self.conv.kernel_size[1]
                 * self.conv.out_channels
             )
-            self.conv.weight.data.zero_()
+
+            if self.varnet:
+                self.conv.weight.data.normal_(
+                    0, self.fixup_l ** (-0.5) * math.sqrt(2.0 / k)
+                )
+            else:
+                self.conv.weight.data.zero_()
 
             if self.conv_res is not None:
                 k = (
@@ -61,8 +67,10 @@ class BasicBlock(nn.Module):
                     * self.conv_res.kernel_size[1]
                     * self.conv_res.out_channels
                 )
-                ##self.conv_res.weight.data.normal_(0, math.sqrt(2.0 / k))
-                self.conv_res.weight.data.fill_(2.0 / k)
+                if self.varnet:
+                    self.conv_res.weight.data.normal_(0, math.sqrt(2.0 / k))
+                else:
+                    self.conv_res.weight.data.fill_(2.0 / k)
 
     def forward(self, x):
         if self.use_bn:
@@ -111,6 +119,7 @@ class WideResNet(nn.Module):
         droprate=0.0,
         use_bn=True,
         use_fixup=False,
+        varnet=False,
     ):
         super(WideResNet, self).__init__()
 
@@ -123,6 +132,8 @@ class WideResNet(nn.Module):
         BasicBlock.use_bn = use_bn
         BasicBlock.fixup_l = n * 3
         BasicBlock.use_fixup = use_fixup
+        BasicBlock.varnet = varnet
+
         ##print("Use fixup WideResnet:")
         ##print(use_fixup)
         ##print("Use BN WideResnet:")
@@ -137,9 +148,12 @@ class WideResNet(nn.Module):
             * self.conv1.kernel_size[1]
             * self.conv1.out_channels
         )
-        ##self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
+        
+        if varnet:
+            self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
+        else:
+            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
 
-        makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
         self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
@@ -149,8 +163,8 @@ class WideResNet(nn.Module):
         self.nChannels = nChannels[3]
 
         self.fc.bias.data.zero_()
-        if use_fixup:
-            self.fc.weight.data.zero_()
+        self.fc.weight.data.zero_()
+
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -166,9 +180,6 @@ class WideResNet(nn.Module):
         out = out.view(-1, self.nChannels)
         return self.fc(out)
 
-
-
-
 def genOrthgonal(dim):
     a = torch.zeros((dim, dim)).normal_(0, 1)
     q, r = torch.qr(a)
@@ -178,28 +189,13 @@ def genOrthgonal(dim):
     q.mul_(d_exp)
     return q
 
-
-
-
 def makeLambdaDeltaOrthogonal(weights, bias, gain):
-
-
     rows = weights.size(0)
     cols = weights.size(1)
-
-
-
     if bias is not None:
         nn.init.constant_(bias, 0)
-
-##    nn.init.kaiming_normal_(weights, mode='fan_out', nonlinearity='relu')
-
     dim = max(rows, cols)
-##    q = genOrthgonal(dim)
     mid1 = weights.size(2) // 2
     mid2 = weights.size(3) // 2
-##    weights[:, :, mid1, mid2] += q[:weights.size(0), :weights.size(1)].mul_(gain)
     nn.init.constant_(weights, 0)
     weights.data[:, :, mid1, mid2] = gain ##torch.ones([rows, cols]) * gain
-
-

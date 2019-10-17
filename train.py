@@ -110,7 +110,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--prune_classes", default=0, type=int, help="Number of classes in the source pruned network (0- same as current dataset)"
+    "--prune_classes", default="0", type=str, help="Number of classes in the source pruned network (0- same as current dataset)"
 )
 
 parser.add_argument("--randomize_mask", default=False, action='store_true' , help="Use random mask for pruning")
@@ -122,6 +122,7 @@ parser.add_argument(
 
 parser.add_argument("--eval", default=False, action='store_true' , help="Evaluation only")
 
+parser.add_argument("--varnet", default=False, action='store_true' , help="Use diversed initialization")
 
 
 
@@ -216,7 +217,7 @@ def getPruneMask(args):
     if os.path.isfile(baseTar):
         
 
-        classes = args.prune_classes
+        classes = onlydigits(args.prune_classes)
         if classes == 0:
             classes = args.classes
 
@@ -227,6 +228,7 @@ def getPruneMask(args):
             droprate=args.droprate,
             use_bn=args.batchnorm,
             use_fixup=args.fixup,
+            varnet = args.varnet,
         )
 
 
@@ -401,7 +403,9 @@ def main2(args):
 
     if args.prune :
         pruner_state = getPruneMask(args)
-
+        if pruner_state is None:
+            print("Failed to prune network, aborting")
+            return None
 
 
     model = WideResNet(
@@ -411,6 +415,7 @@ def main2(args):
         droprate=args.droprate,
         use_bn=args.batchnorm,
         use_fixup=args.fixup,
+        varnet = args.varnet,
     )
     
     draw(args,model)
@@ -433,7 +438,7 @@ def main2(args):
 
 
 
-    if args.prune and args.prune_epoch > 0: 
+    if args.prune: 
         if  args.prune_epoch >= 100:
             weightsFile =  "runs/%s-net/checkpoint.pth.tar" % args.prune
         else:
@@ -445,8 +450,11 @@ def main2(args):
             model.load_state_dict(checkpoint["state_dict"])
             print(f"=> loaded checkpoint '{weightsFile}' (epoch {checkpoint['epoch']})")
         else:
-            print(f"=> no checkpoint found at {weightsFile}")
-
+            if args.prune_epoch == 0:
+                print(f"=> No source data, Restarting network from scratch")
+            else:
+                print(f"=> no checkpoint found at {weightsFile}, aborting...")
+                return None
 
 
     else:
@@ -460,8 +468,8 @@ def main2(args):
                 model.load_state_dict(checkpoint["state_dict"])
                 print(f"=> loaded checkpoint '{tarfile}' (epoch {checkpoint['epoch']})")
             else:
-                print(f"=> no checkpoint found at {tarfile}")
-
+                print(f"=> no checkpoint found at {tarfile}, aborting...")
+                return None
 
     cudnn.benchmark = True
     criterion = nn.CrossEntropyLoss().cuda()
@@ -493,6 +501,18 @@ def main2(args):
     if args.eval:
         best_prec1 = validate(args,val_loader, model, criterion, 0,None)
     else:
+
+        if args.varnet:
+            save_checkpoint(args,
+                {
+                    "epoch": 0,
+                    "state_dict": model.state_dict(),
+                    "best_prec1": 0.0,
+                },
+                True,
+            )
+            best_prec1 = 0.0
+
         for epoch in range(args.start_epoch, args.epochs):
             adjust_learning_rate(args,optimizer, epoch + 1)
             train(args,train_loader, model, criterion, optimizer, epoch, pruner_retrain, writer)
@@ -655,7 +675,7 @@ def save_checkpoint(args,state, is_best, filename="checkpoint.pth.tar"):
     if is_best:
         shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_best.pth.tar")
 
-    if epoch<=1:
+    if epoch==0 or epoch==2:
         shutil.copyfile(filename, "runs/%s-net/" % (args.name) + "model_epoch_%d.pth.tar" % epoch )
 
 
