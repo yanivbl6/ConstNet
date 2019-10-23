@@ -2,6 +2,9 @@
 
 dataset=$1
 
+arch="network_4x5"
+
+
 
 while [[ $2 ]]; do
     rate=$2
@@ -26,7 +29,7 @@ while [[ $2 ]]; do
         exit
     fi
 
-    cmd="python train.py --layers 16 --widen-factor 10 --fixup --batchnorm --lr 0.03 --name $name -d ${dev} --droprate 0.15 --prune ${dataset}_constnet_16_lr_30_dropout_15 --cutoff 0.${rate} --prune_epoch 0 --dataset ${dataset} --no-saves --randomize_mask "
+    cmd="python train.py --layers 16 --widen-factor 10 --fixup --batchnorm --lr 0.03 --name $name -d ${dev} --droprate 0.15 --prune ${dataset}_constnet_${arch} --cutoff 0.${rate} --prune_epoch 0 --dataset ${dataset} --no-saves --randomize_mask "
 
     echo "Running command:"
     echo $cmd
