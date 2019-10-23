@@ -24,6 +24,9 @@ import torchvision.datasets as datasets
 from torch.autograd import Variable
 
 from model import WideResNet
+from model import ResNet5
+
+
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
 from utils.imgnet import IMGNET
@@ -127,6 +130,8 @@ parser.add_argument("--varnet", default=False, action='store_true' , help="Use d
 
 
 
+
+
 parser.set_defaults(augment=True)
 
 class AverageMeter(object):
@@ -221,7 +226,7 @@ def getPruneMask(args):
         if classes == 0:
             classes = args.classes
 
-        fullModel = WideResNet(
+        fullModel = ResNet5(
             args.layers,
             classes,
             args.widen_factor,
@@ -408,7 +413,7 @@ def main2(args):
             return None
 
 
-    model = WideResNet(
+    model = ResNet5(
         args.layers,
         args.classes,
         args.widen_factor,
