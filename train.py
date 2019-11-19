@@ -127,7 +127,7 @@ parser.add_argument("--eval", default=False, action='store_true' , help="Evaluat
 
 parser.add_argument("--varnet", default=False, action='store_true' , help="Use diversed initialization")
 
-
+parser.add_argument("--symmetry_break", default=False, action='store_true' , help="Quit if the accuracy is over 50% for some time")
 
 
 
@@ -226,7 +226,7 @@ def getPruneMask(args):
         if classes == 0:
             classes = args.classes
 
-        fullModel = ResNet5(
+        fullModel = WideResNet(
             args.layers,
             classes,
             args.widen_factor,
@@ -295,6 +295,9 @@ def nondigits(txt):
 
 def onlydigits(txt):
     return int(''.join([i for i in txt if i.isdigit()]))
+
+
+
 
 
 def main2(args):
@@ -413,7 +416,7 @@ def main2(args):
             return None
 
 
-    model = ResNet5(
+    model = WideResNet(
         args.layers,
         args.classes,
         args.widen_factor,
@@ -518,11 +521,17 @@ def main2(args):
             )
             best_prec1 = 0.0
 
+
+        turns_above_50=0
+
         for epoch in range(args.start_epoch, args.epochs):
             adjust_learning_rate(args,optimizer, epoch + 1)
             train(args,train_loader, model, criterion, optimizer, epoch, pruner_retrain, writer)
 
             prec1 = validate(args,val_loader, model, criterion, epoch,writer)
+
+
+
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
 
@@ -535,6 +544,12 @@ def main2(args):
                     },
                     is_best,
                 )
+
+            if args.symmetry_break:
+                if prec1 > 50.0:
+                    turns_above_50+=1
+                    if turns_above_50>3:
+                        return epoch
 
     writer.close()
 
@@ -605,8 +620,9 @@ def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer)
             niter = epoch*len(train_loader)+i
 
     batch_idx = i
-    writer.add_scalar('Train/Loss', train_loss/batch_idx, epoch)
-    writer.add_scalar('Train/Prec@1', 100.*correct/total, epoch)
+    if writer is not None:
+        writer.add_scalar('Train/Loss', train_loss/batch_idx, epoch)
+        writer.add_scalar('Train/Prec@1', 100.*correct/total, epoch)
 ##        writer.add_scalar('Train/RegLoss', reg_loss/batch_idx, niter)
 
 

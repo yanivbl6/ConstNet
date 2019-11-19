@@ -3,8 +3,7 @@
 dataset=$1
 
 arch="network_4x5"
-
-
+arch="16_lr_30_dropout_15"
 
 while [[ $2 ]]; do
     rate=$2

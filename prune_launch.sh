@@ -5,6 +5,7 @@ to=$2
 
 arch="network_4x5"
 
+arch="16_lr_30_dropout_15"
 
 
 while [[ $3 ]]; do
