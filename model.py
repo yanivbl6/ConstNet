@@ -81,6 +81,10 @@ class BasicBlock(nn.Module):
         else:
             x_out = self.relu(x + self.biases[0])
             out = self.conv(x_out) + self.biases[1]
+
+##            x_out = self.relu(x + self.biases[0])
+##            out = self.conv(x_out) + self.biases[1]
+
             if self.droprate > 0:
                 out = F.dropout(out, p=self.droprate, training=self.training)
             out = self.scale * out

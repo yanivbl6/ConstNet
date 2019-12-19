@@ -7,6 +7,7 @@ arch="network_4x5"
 
 arch="16_lr_30_dropout_15"
 
+arch="resnet4"
 
 while [[ $3 ]]; do
     rate=$3
@@ -31,8 +32,7 @@ while [[ $3 ]]; do
         exit
     fi
 
-
-    cmd="python train.py --layers 16 --widen-factor 10 --fixup --batchnorm --lr 0.03 --name $name -d ${dev} --droprate 0.15 --prune ${from}_constnet_${arch} --cutoff 0.${rate} --prune_epoch 0 --dataset ${to} --no-saves --prune_classes ${from} "
+    cmd="python train.py --layers 16 --widen-factor 4 --fixup --batchnorm --lr 0.03 --name $name -d ${dev} --droprate 0.15 --prune ${from}_${arch} --cutoff 0.${rate} --prune_epoch 0 --dataset ${to} --no-saves --nonesterov  --prune_classes ${from} "
 
     echo "Running command:"
     echo $cmd

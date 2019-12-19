@@ -8,6 +8,9 @@ to=$2
 arch="network_4x5"
 
 arch="16_lr_30_dropout_15"
+
+arch="resnet4"
+
 while [[ $3 ]]; do
     rate=$3
 

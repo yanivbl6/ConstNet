@@ -71,7 +71,7 @@ parser.add_argument(
     "--lr", "--learning-rate", default=0.1, type=float, help="default: 0.1"
 )
 parser.add_argument("--momentum", default=0.9, type=float, help="momentum")
-parser.add_argument("--nesterov", default=True, type=bool, help="nesterov momentum")
+parser.add_argument("--nonesterov", action = "store_true" , help="nesterov momentum")
 parser.add_argument(
     "--weight-decay", "--wd", default=5e-4, type=float, help="default: 5e-4"
 )
@@ -87,6 +87,11 @@ parser.add_argument(
 parser.add_argument(
     "--name", default="WideResNet-28-10", type=str, help="name of experiment"
 )
+
+parser.add_argument(
+    "--dir", default="/home", type=str, help="dataset directory"
+)
+
 parser.add_argument(
     "--tensorboard", help="Log progress to TensorBoard", action="store_true"
 )
@@ -128,8 +133,6 @@ parser.add_argument("--eval", default=False, action='store_true' , help="Evaluat
 parser.add_argument("--varnet", default=False, action='store_true' , help="Use diversed initialization")
 
 parser.add_argument("--symmetry_break", default=False, action='store_true' , help="Quit if the accuracy is over 50% for some time")
-
-
 
 
 parser.set_defaults(augment=True)
@@ -373,7 +376,7 @@ def main2(args):
             **kwargs,
         )
     elif  dstype == "cinic":
-        cinic_directory = '/home/ehoffer/Datasets/cinic10'
+        cinic_directory = "%s/cinic10" % args.dir
         cinic_mean = [0.47889522, 0.47227842, 0.43047404]
         cinic_std = [0.24205776, 0.23828046, 0.25874835]
         train_loader = torch.utils.data.DataLoader(
@@ -390,13 +393,13 @@ def main2(args):
     elif dstype == "imgnet":
         print("Using converted imagenet")
         train_loader = torch.utils.data.DataLoader(
-            IMGNET("/home/ehoffer/Datasets/", train=True, transform=transform_train, target_transform=None, classes = args.classes),
+            IMGNET("%s" % args.dir, train=True, transform=transform_train, target_transform=None, classes = args.classes),
             batch_size=args.batch_size,
             shuffle=True,
             **kwargs,
         )
         val_loader = torch.utils.data.DataLoader(
-            IMGNET("/home/ehoffer/Datasets/", train=False, transform=transform_test, target_transform=None, classes = args.classes),
+            IMGNET("%s" % args.dir, train=False, transform=transform_test, target_transform=None, classes = args.classes),
             batch_size=args.batch_size,
             shuffle=True,
             **kwargs,
@@ -482,12 +485,14 @@ def main2(args):
     cudnn.benchmark = True
     criterion = nn.CrossEntropyLoss().cuda()
 
+    print(not args.nonesterov)
+
     if args.optimizer.lower() == 'sgd':
         optimizer = torch.optim.SGD(
             model.parameters(),
             args.lr,
             momentum=args.momentum,
-            nesterov=args.nesterov,
+            nesterov=(not args.nonesterov),
             weight_decay=args.weight_decay,
         )
     elif args.optimizer.lower() == 'radam':
