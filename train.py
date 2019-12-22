@@ -23,9 +23,9 @@ import torchvision.datasets as datasets
 
 from torch.autograd import Variable
 
-from model import WideResNet
+##from model import WideResNet
 from model import ResNet5
-
+from remodel import ConvNet as WideResNet
 
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
@@ -89,7 +89,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--dir", default="/home", type=str, help="dataset directory"
+    "--dir", default="/home/ehoffer/Datasets", type=str, help="dataset directory"
 )
 
 parser.add_argument(
@@ -134,6 +134,9 @@ parser.add_argument("--varnet", default=False, action='store_true' , help="Use d
 
 parser.add_argument("--symmetry_break", default=False, action='store_true' , help="Quit if the accuracy is over 50% for some time")
 
+parser.add_argument(
+    "--noise", default=0.0, type=float, help="noise. 0.0: constnet, 1.0: varnet"
+)
 
 parser.set_defaults(augment=True)
 
@@ -237,6 +240,7 @@ def getPruneMask(args):
             use_bn=args.batchnorm,
             use_fixup=args.fixup,
             varnet = args.varnet,
+            noise = args.noise,
         )
 
 
@@ -427,6 +431,7 @@ def main2(args):
         use_bn=args.batchnorm,
         use_fixup=args.fixup,
         varnet = args.varnet,
+        noise = args.noise,
     )
     
     draw(args,model)
