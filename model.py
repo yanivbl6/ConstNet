@@ -124,6 +124,8 @@ class ResNet5(nn.Module):
         use_bn=True,
         use_fixup=False,
         varnet=False,
+        noise=0.0,
+        lrelu=0.0,
     ):
         super(ResNet5, self).__init__()
 

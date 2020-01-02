@@ -23,9 +23,9 @@ import torchvision.datasets as datasets
 
 from torch.autograd import Variable
 
-##from model import WideResNet
+from model import WideResNet
 from model import ResNet5
-from remodel import ConvNet as WideResNet
+##from remodel import ConvNet as WideResNet
 
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
@@ -39,8 +39,7 @@ import numpy as np
 from torchviz import make_dot
 
 import prunhild
-
-
+ף
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
 parser.add_argument("--layers", default=28, type=int, help="default: 28")
@@ -137,6 +136,11 @@ parser.add_argument("--symmetry_break", default=False, action='store_true' , hel
 parser.add_argument(
     "--noise", default=0.0, type=float, help="noise. 0.0: constnet, 1.0: varnet"
 )
+
+parser.add_argument(
+    "--lrelu", default=0.0, type=float, help="leaky relu variable"
+)
+
 
 parser.set_defaults(augment=True)
 
@@ -241,6 +245,7 @@ def getPruneMask(args):
             use_fixup=args.fixup,
             varnet = args.varnet,
             noise = args.noise,
+            lrelu = args.lrelu,
         )
 
 
@@ -432,6 +437,7 @@ def main2(args):
         use_fixup=args.fixup,
         varnet = args.varnet,
         noise = args.noise,
+        lrelu = args.lrelu,
     )
     
     draw(args,model)
