@@ -12,6 +12,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+
+class Swish(nn.Module):
+
+    def forward(self, input):
+        return (input + torch.sigmoid(input))
+
+    def __repr__(self):
+        return self.__class__.__name__ + '  ()'
+
 class BasicBlock(nn.Module):
     droprate = 0.0
     use_bn = True
@@ -26,7 +35,11 @@ class BasicBlock(nn.Module):
         ##print(self.use_fixup)
         
         self.bn = nn.BatchNorm2d(in_planes)
+##        self.relu = nn.Softplus()
+##        self.relu = Swish()
         self.relu = nn.ReLU(inplace=True)
+
+        gain = torch.nn.init.calculate_gain('relu')
         self.conv = nn.Conv2d(
             in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
@@ -56,7 +69,7 @@ class BasicBlock(nn.Module):
 
             if self.varnet:
                 self.conv.weight.data.normal_(
-                    0, self.fixup_l ** (-0.5) * math.sqrt(2.0 / k)
+                    0, self.fixup_l ** (-0.5) * gain * math.sqrt(1.0 / k)
                 )
             else:
                 self.conv.weight.data.zero_()
@@ -68,9 +81,9 @@ class BasicBlock(nn.Module):
                     * self.conv_res.out_channels
                 )
                 if self.varnet:
-                    self.conv_res.weight.data.normal_(0, math.sqrt(2.0 / k))
+                    self.conv_res.weight.data.normal_(0, gain * math.sqrt(1.0 / k))
                 else:
-                    self.conv_res.weight.data.fill_(2.0 / k)
+                    self.conv_res.weight.data.fill_(gain**2 / k)
 
     def forward(self, x):
         if self.use_bn:
@@ -154,12 +167,12 @@ class ResNet5(nn.Module):
             * self.conv1.kernel_size[1]
             * self.conv1.out_channels
         )
-        
+        gain = torch.nn.init.calculate_gain('relu')
         if varnet:
             self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
         else:
-            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
-
+            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, gain ) ##*torch.nn.init.calculate_gain('relu'))
+        
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
         self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
@@ -167,7 +180,10 @@ class ResNet5(nn.Module):
         self.block5 = NetworkBlock(n, nChannels[4], nChannels[5], block, 2)
 
 
+
         self.relu = nn.ReLU(inplace=True)
+##        self.relu = nn.Softplus()
+##        self.relu = Swish()
         self.fc = nn.Linear(nChannels[5], num_classes)
         self.nChannels = nChannels[5]
 
@@ -204,6 +220,8 @@ class WideResNet(nn.Module):
         use_bn=True,
         use_fixup=False,
         varnet=False,
+        noise=0.0,
+        lrelu=0.0,
     ):
         super(WideResNet, self).__init__()
 
@@ -233,16 +251,20 @@ class WideResNet(nn.Module):
             * self.conv1.out_channels
         )
         
+        gain = torch.nn.init.calculate_gain('relu')
         if varnet:
-            self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
+            self.conv1.weight.data.normal_(0,  gain * math.sqrt(1.0 / k))
         else:
-            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'))
-
+            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, gain) 
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
         self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
 
         self.relu = nn.ReLU(inplace=True)
+
+##        self.relu = nn.Softplus()
+##        self.relu = Swish()
+
         self.fc = nn.Linear(nChannels[3], num_classes)
         self.nChannels = nChannels[3]
 

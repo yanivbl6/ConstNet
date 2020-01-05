@@ -24,7 +24,7 @@ import torchvision.datasets as datasets
 from torch.autograd import Variable
 
 from model import WideResNet
-from model import ResNet5
+##from model import ResNet5
 ##from remodel import ConvNet as WideResNet
 
 from utils.cutout import Cutout
@@ -39,7 +39,8 @@ import numpy as np
 from torchviz import make_dot
 
 import prunhild
-ף
+
+
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
 parser.add_argument("--layers", default=28, type=int, help="default: 28")
