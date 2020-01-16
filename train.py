@@ -26,6 +26,7 @@ from torch.autograd import Variable
 from model import WideResNet
 ##from model import ResNet5
 ##from remodel import ConvNet as WideResNet
+##from remodel import NarrowNet as WideResNet
 
 from utils.cutout import Cutout
 from utils.radam import RAdam, AdamW
@@ -56,6 +57,8 @@ parser.add_argument(
 )
 
 
+
+
 parser.add_argument("--epochs", default=200, type=int, help="default: 200")
 parser.add_argument("--start-epoch", default=0, type=int, help="epoch for restart")
 parser.add_argument("-b", "--batch-size", default=128, type=int, help="default: 128")
@@ -77,6 +80,12 @@ parser.add_argument(
 )
 parser.add_argument('--alpha', default=0.0, type=float,
                     help='mixup interpolation coefficient (default: 0.0)')
+
+
+parser.add_argument('--forceW', default=0.0, type=float,
+                    help='mixup interpolation coefficient (default: 0.0)')
+
+
 
 parser.add_argument(
     "--resume", default="", type=str, help="path to latest checkpoint (default: '')"
@@ -142,6 +151,21 @@ parser.add_argument(
     "--lrelu", default=0.0, type=float, help="leaky relu variable"
 )
 
+parser.add_argument(
+    "--freeze", default=0, type=int, help="Number of top layers to freeze"
+)
+
+parser.add_argument(
+    "--freeze_start", default=0, type=int, help="Number of top layers not to freeze"
+)
+
+parser.add_argument(
+    "--res_freeze", default=0, type=int, help="Number of conv layers to freeze"
+)
+
+parser.add_argument(
+    "--res_freeze_start", default=0, type=int, help="Number of conv layers not to freeze"
+)
 
 parser.set_defaults(augment=True)
 
@@ -225,7 +249,7 @@ def randomize_mask(mask,cutoff):
     for k in st.keys():
         m = st[k]['prune_mask']
         mshape = (m.shape)
-        m.data = torch.bernoulli(0.30 * torch.ones(mshape))
+        m.data = torch.bernoulli(cutoff * torch.ones(mshape))
     return mask
 
 def getPruneMask(args):
@@ -275,6 +299,9 @@ def getPruneMask(args):
         cutoff = prunhild.cutoff.LocalRatioCutoff(args.cutoff)
         # don't prune the final bias weights
         params = get_params_for_pruning(args,fullModel)
+
+        print(params)
+
         pruner = prunhild.pruner.CutoffPruner(params, cutoff, prune_online=True)
         pruner.prune()
        
@@ -422,7 +449,7 @@ def main2(args):
     ##print("main fixup:")
     ##print(args.fixup)
 
-    if args.prune :
+    if args.prune:
         pruner_state = getPruneMask(args)
         if pruner_state is None:
             print("Failed to prune network, aborting")
@@ -459,6 +486,55 @@ def main2(args):
 
     model = model.cuda()
 
+    if args.freeze>0:
+        cnt = 0
+        for name,param in model.named_parameters():
+            if intersection(['scale'],name.split('.')):
+                cnt=cnt+1
+                if cnt == args.freeze:
+                    break
+
+            if cnt >= args.freeze_start:
+##                if intersection(['conv','conv1'],name.split('.')):
+##                    print("Freezing Block: %s" % name.split('.')[1:3]  )
+                if not intersection(['conv_res','fc'],name.split('.')):
+                    param.requires_grad = False
+                    print("Freezing Block: %s" % name)
+
+
+    elif args.freeze < 0:
+        cnt = 0
+        for name,param in model.named_parameters():
+            if intersection(['scale'],name.split('.')):
+                cnt=cnt+1
+
+            if cnt >  args.layers - 3 + args.freeze - 1:
+##                if intersection(['conv','conv1'],name.split('.')):
+##                    print("Freezing Block: %s" % name  )
+
+                if not intersection(['conv_res','fc'],name.split('.')):
+                    param.requires_grad = False
+                    print("Freezing Block: %s" % name  )
+
+
+    if args.res_freeze > 0:
+        cnt = 0
+        for name,param in model.named_parameters():
+            if intersection(['conv_res'],name.split('.')):
+                cnt=cnt+1
+                if cnt > args.res_freeze_start:
+                    param.requires_grad = False
+                    print("Freezing Block: %s" % name)
+                if cnt >= args.res_freeze:
+                    break
+    elif args.res_freeze < 0:
+        cnt = 0
+        for name,param in model.named_parameters():
+            if intersection(['conv_res'],name.split('.')):
+                cnt=cnt+1
+                if cnt > 3 + args.res_freeze:
+                    param.requires_grad = False
+                    print("Freezing Block: %s" % name)
 
 
     if args.prune: 
@@ -496,8 +572,6 @@ def main2(args):
 
     cudnn.benchmark = True
     criterion = nn.CrossEntropyLoss().cuda()
-
-    print(not args.nonesterov)
 
     if args.optimizer.lower() == 'sgd':
         optimizer = torch.optim.SGD(
