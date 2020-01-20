@@ -89,12 +89,20 @@ class BasicBlock(nn.Module):
 
     def forward(self, x):
         if self.use_bn:
-            x_out = self.relu(self.bn(x))
+            if self.no_act:
+                x_out = self.bn(x)
+##                x_out = x
+            else:
+                x_out = self.relu(self.bn(x))
             out = self.conv(x_out)
             if self.droprate > 0:
                 out = F.dropout(out, p=self.droprate, training=self.training)
         else:
-            x_out = self.relu(x + self.biases[0])
+
+            if self.no_act:
+                x_out = x + self.biases[0]
+            else:
+                x_out = self.relu(x + self.biases[0])
             out = self.conv(x_out) + self.biases[1]
 
 ##            x_out = self.relu(x + self.biases[0])
