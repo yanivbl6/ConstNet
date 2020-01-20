@@ -50,7 +50,8 @@ class BasicBlock(nn.Module):
             in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False
         )
         self.conv_res = not self.equalInOut and self.conv_res or None
-
+        self.no_act =  not self.equalInOut
+            
         assert (
             self.use_fixup or self.use_bn
         ), "Need to use at least one thing: Fixup or BatchNorm"

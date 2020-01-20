@@ -167,6 +167,10 @@ parser.add_argument(
     "--res_freeze_start", default=0, type=int, help="Number of conv layers not to freeze"
 )
 
+parser.add_argument(
+    "--cudaNoise", default=True, action='store_false' , help="Turn cudann to deterministic"
+)
+
 parser.set_defaults(augment=True)
 
 class AverageMeter(object):
@@ -342,6 +346,8 @@ def onlydigits(txt):
 
 def main2(args):
     best_prec1 = 0.0
+
+    torch.backends.cudnn.deterministic = not args.cudaNoise
 
     if args.tensorboard:
         configure(f"runs/{args.name}")
@@ -719,7 +725,7 @@ def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer)
 
 
 
-def validate(args,val_loader, model, criterion, epoch, writer):
+def validate(args,val_loader, model, criterion, epoch, writer, quiet=False):
     """Perform validation on the validation set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -765,8 +771,8 @@ def validate(args,val_loader, model, criterion, epoch, writer):
             log_value("val_acc", top1.avg, epoch)
 
 
-
-    print(f" * Prec@1 {top1.avg:.3f}")
+    if not quiet:
+        print(f" * Prec@1 {top1.avg:.3f}")
 
     return top1.avg
 
