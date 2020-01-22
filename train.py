@@ -151,6 +151,11 @@ parser.add_argument(
     "--lrelu", default=0.0, type=float, help="leaky relu variable"
 )
 
+
+parser.add_argument(
+    "-W", "--sigmaW", default=-1.0, type=float, help="Varnet parameter for initializing weights"
+)
+
 parser.add_argument(
     "--freeze", default=0, type=int, help="Number of top layers to freeze"
 )
@@ -275,6 +280,7 @@ def getPruneMask(args):
             varnet = args.varnet,
             noise = args.noise,
             lrelu = args.lrelu,
+            sigmaW = args.sigmaW,
         )
 
 
@@ -328,10 +334,13 @@ def getPruneMask(args):
         return None
         
 def main(txt=None):
-    if not txt:
-        args = parser.parse_args()
-    else:
-        args = parser.parse_args(txt.split())
+    args = justParse(txt)
+
+    if args.sigmaW == -1.0:
+        if args.varnet:
+            args.sigmaW = 1.0
+        else:
+            args.sigmaW = 0.0
     return main2(args)
 
 def nondigits(txt):
@@ -472,6 +481,7 @@ def main2(args):
         varnet = args.varnet,
         noise = args.noise,
         lrelu = args.lrelu,
+        sigmaW = args.sigmaW,
     )
     
     draw(args,model)

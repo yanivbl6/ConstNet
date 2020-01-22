@@ -27,9 +27,10 @@ class BasicBlock(nn.Module):
     use_fixup = False
     fixup_l = 12
     varnet = False
+    sigmaW = 1.0
+
     def __init__(self, in_planes, out_planes, stride):
         super(BasicBlock, self).__init__()
-
         
         ##print("Use fixup:")
         ##print(self.use_fixup)
@@ -71,10 +72,15 @@ class BasicBlock(nn.Module):
 
             if self.varnet:
                 self.conv.weight.data.normal_(
-                    0, self.fixup_l ** (-0.5) * gain * math.sqrt(1.0 / k)
+                    0, self.fixup_l ** (-0.5) * gain * math.sqrt(self.sigmaW / k)
                 )
             else:
-                self.conv.weight.data.zero_()
+                if self.sigmaW == 0.0:
+                    self.conv.weight.data.zero_()
+                else:
+                    self.conv.weight.data.normal_(
+                        0, self.fixup_l ** (-0.5) * gain * math.sqrt(self.sigmaW / k)
+                    )
 
             if self.conv_res is not None:
                 k = (
@@ -83,15 +89,15 @@ class BasicBlock(nn.Module):
                     * self.conv_res.out_channels
                 )
                 if self.varnet:
-                    self.conv_res.weight.data.normal_(0, gain * math.sqrt(1.0 / k))
+                    self.conv_res.weight.data.normal_(0, gain * math.sqrt(self.sigmaW / k))
                 else:
                     self.conv_res.weight.data.fill_(gain**2 / k)
 
     def forward(self, x):
         if self.use_bn:
             if self.no_act:
-                x_out = self.bn(x)
-##                x_out = x
+##                x_out = self.bn(x)
+                x_out = x
             else:
                 x_out = self.relu(self.bn(x))
             out = self.conv(x_out)
@@ -232,6 +238,7 @@ class WideResNet(nn.Module):
         varnet=False,
         noise=0.0,
         lrelu=0.0,
+        sigmaW = 1.0,
     ):
         super(WideResNet, self).__init__()
 
@@ -263,7 +270,7 @@ class WideResNet(nn.Module):
         
         gain = torch.nn.init.calculate_gain('relu')
         if varnet:
-            self.conv1.weight.data.normal_(0,  gain * math.sqrt(1.0 / k))
+            self.conv1.weight.data.normal_(0,  gain * math.sqrt(sigmaW / k))
         else:
             makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, gain) 
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
