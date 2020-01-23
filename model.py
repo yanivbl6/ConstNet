@@ -96,8 +96,8 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         if self.use_bn:
             if self.no_act:
-##                x_out = self.bn(x)
-                x_out = x
+                x_out = self.bn(x)
+##                x_out = x
             else:
                 x_out = self.relu(self.bn(x))
             out = self.conv(x_out)
@@ -252,6 +252,9 @@ class WideResNet(nn.Module):
         BasicBlock.fixup_l = n * 3
         BasicBlock.use_fixup = use_fixup
         BasicBlock.varnet = varnet
+        BasicBlock.sigmaW = sigmaW
+
+
 
         ##print("Use fixup WideResnet:")
         ##print(use_fixup)

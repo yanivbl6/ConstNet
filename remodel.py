@@ -113,6 +113,7 @@ class NarrowNet(nn.Module):
         varnet=False,
         noise=0.0,
         lrelu=0.0,
+        sigmaW=1.0,
     ):
         super(NarrowNet, self).__init__()
 

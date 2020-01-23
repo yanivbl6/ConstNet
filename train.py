@@ -236,6 +236,13 @@ def justParse(txt=None):
         args = parser.parse_args()
     else:
         args = parser.parse_args(txt.split())
+
+    if args.sigmaW == -1.0:
+        if args.varnet:
+            args.sigmaW = 1.0
+        else:
+            args.sigmaW = 0.0
+
     return args
 
 def intersection(lst1, lst2): 
@@ -336,11 +343,6 @@ def getPruneMask(args):
 def main(txt=None):
     args = justParse(txt)
 
-    if args.sigmaW == -1.0:
-        if args.varnet:
-            args.sigmaW = 1.0
-        else:
-            args.sigmaW = 0.0
     return main2(args)
 
 def nondigits(txt):
