@@ -23,7 +23,9 @@ import torchvision.datasets as datasets
 
 from torch.autograd import Variable
 
-from model import WideResNet
+##from model import WideResNet
+from remodel import LRNet as WideResNet
+
 ##from model import ResNet5
 ##from remodel import ConvNet as WideResNet
 ##from remodel import NarrowNet as WideResNet
@@ -40,24 +42,21 @@ import numpy as np
 from torchviz import make_dot
 
 import prunhild
-
+import correlation
 
 parser = argparse.ArgumentParser(description="PyTorch WideResNet Training")
 parser.add_argument("--print-freq", "-p", default=10, type=int, help="default: 10")
 parser.add_argument("--layers", default=28, type=int, help="default: 28")
 parser.add_argument("--widen-factor", default=10, type=int, help="default: 10")
 parser.add_argument("--batchnorm", default=False, help="apply BatchNorm",  action='store_true')
-parser.add_argument("--fixup", default=False, help="apply Fixup", action='store_true'  )
-parser.add_argument("--droprate", default=0, type=float, help="default: 0.0")
+parser.add_argument("--fixup", default=True, help="apply Fixup", action='store_false'  )
+parser.add_argument("--droprate", default=0.0, type=float, help="default: 0.0")
 parser.add_argument("--cutout", default=False, type=bool, help="apply cutout")
 parser.add_argument("--length", default=16, type=int, help="length of the holes")
 parser.add_argument("--n_holes", default=1, type=int, help="number of holes to cut out")
 parser.add_argument(
     "--dataset", default="cifar10", type=str, help="cifar10 [default], cifar100, cinic10, imgnet10 or imgnet100"
 )
-
-
-
 
 parser.add_argument("--epochs", default=200, type=int, help="default: 200")
 parser.add_argument("--start-epoch", default=0, type=int, help="epoch for restart")
@@ -74,7 +73,7 @@ parser.add_argument(
     "--lr", "--learning-rate", default=0.1, type=float, help="default: 0.1"
 )
 parser.add_argument("--momentum", default=0.9, type=float, help="momentum")
-parser.add_argument("--nonesterov", action = "store_true" , help="nesterov momentum")
+parser.add_argument("--nesterov", default = False, action = "store_true" , help="nesterov momentum")
 parser.add_argument(
     "--weight-decay", "--wd", default=5e-4, type=float, help="default: 5e-4"
 )
@@ -224,6 +223,8 @@ def draw(args,model):
     misc = torch.zeros([args.batch_size,3,32,32])
     dot = make_dot(model(misc), params= dict(model.named_parameters()))
     dot.format = 'pdf'
+    
+
     if args.batchnorm:
         dot.render("batchnorm-graph") 
     elif args.fixup:
@@ -596,7 +597,7 @@ def main2(args):
             model.parameters(),
             args.lr,
             momentum=args.momentum,
-            nesterov=(not args.nonesterov),
+            nesterov=args.nesterov,
             weight_decay=args.weight_decay,
         )
     elif args.optimizer.lower() == 'radam':
@@ -638,8 +639,7 @@ def main2(args):
             train(args,train_loader, model, criterion, optimizer, epoch, pruner_retrain, writer)
 
             prec1 = validate(args,val_loader, model, criterion, epoch,writer)
-
-
+            correlation.measure_correlation(model, epoch, writer=writer)    
 
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
@@ -816,6 +816,8 @@ def adjust_learning_rate(args,optimizer, epoch):
         * (0.2 ** int(epoch >= 120))
         * (0.2 ** int(epoch >= 160))
     )
+
+    ##lr = args.lr  ##DELETE ME!
 
     if args.tensorboard:
         log_value("learning_rate", lr, epoch)

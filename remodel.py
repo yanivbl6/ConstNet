@@ -61,17 +61,26 @@ class BasicBlock(nn.Module):
 
 ##        print("phase: %d, equal: %s " % ( phase , self.equalInOut))
 
-        if self.equalInOut:
-            ConstIdentity(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu'), self.const, phase, self.lrelu)
+##        if self.equalInOut:
+
+
+        if i in [15]:
+            ConstAvg(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu')*(1.0+self.lrelu), self.const, phase, self.lrelu)
+            print("Avg init: %s %d",self.relu, phase)
+
         else:
-            ConstDeltaOrthogonal(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu'),self.const)
+            ConstIdentity(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu')*(1.0+self.lrelu), self.const, phase, self.lrelu)
+            print("Identity init: %s %d",self.relu, phase)
+
+
+##        else:
+##            ConstDeltaOrthogonal(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu'),self.const)
 
 
 
     def forward(self, x):
 
-
-        out = self.relu(self.conv(x))
+        out = self.relu(self.conv(x + self.biases[0]))
 
 
         if self.droprate > 0:
@@ -83,17 +92,17 @@ class BasicBlock(nn.Module):
         return out
 
 class NetworkBlock(nn.Module):
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride,pos):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride)
+        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, pos)
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride):
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride,pos):
         layers = []
 
         for i in range(int(nb_layers)):
             _in_planes = i == 0 and in_planes or out_planes
             _stride = i == 0 and stride or 1
-            layers.append(block(_in_planes, out_planes, _stride,i))
+            layers.append(block(_in_planes, out_planes, _stride,i+pos))
 
         return nn.Sequential(*layers)
 
@@ -101,7 +110,7 @@ class NetworkBlock(nn.Module):
         return self.layer(x)
 
 
-class NarrowNet(nn.Module):
+class LRNet(nn.Module):
     def __init__(
         self,
         depth,
@@ -115,15 +124,17 @@ class NarrowNet(nn.Module):
         lrelu=0.0,
         sigmaW=1.0,
     ):
-        super(NarrowNet, self).__init__()
+        super(LRNet, self).__init__()
 
         if varnet:
             noise=1.0
 
 
-        ##nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
+        print("Using LRNet")
 
-        nChannels = [widen_factor, widen_factor , widen_factor , widen_factor]
+        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
+
+##        nChannels = [widen_factor, widen_factor , widen_factor , widen_factor]
 
 
         assert (depth - 4) % 3 == 0, "You need to change the number of layers"
@@ -152,11 +163,15 @@ class NarrowNet(nn.Module):
             * self.conv1.out_channels
         )
         
-        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
+##        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
 
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
+        ##ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
+        ConstIdentity(self.conv1.weight, self.conv1.bias, 1.0 , 1.0, 1, 0.0)
+        print("first identity")
+
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,0)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,n)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,2*n)
 
         if lrelu ==0.0:
             self.relu = nn.ReLU(inplace=True)
@@ -178,8 +193,6 @@ class NarrowNet(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x):
-
-
         out = self.conv1(x)
         out = self.block1(out)
         out = self.block2(out)
@@ -253,9 +266,11 @@ class ConvNet(nn.Module):
         
         ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
 
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
+        
+
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,i)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,i)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,i)
 
         if lrelu ==0.0:
             self.relu = nn.ReLU(inplace=True)
@@ -322,8 +337,12 @@ def ConstIdentity(weights, bias, gain, const = 1.0, phase = 1, lrelu = 0.0):
 
     rows = weights.size(0)
     cols = weights.size(1)
+
+    assert(rows >= cols)
+    ##assert(rows % cols == 0)
+
+
  
-    assert(rows==cols)
 
     if const < 1.0:
         k = cols * weights.size(2) * weights.size(3)
@@ -335,14 +354,42 @@ def ConstIdentity(weights, bias, gain, const = 1.0, phase = 1, lrelu = 0.0):
         nn.init.constant_(bias, 0)
 
     if const > 0.0:
+
         mid1 = weights.size(2) // 2
         mid2 = weights.size(3) // 2
-        factor = phase*(1.0/cols**2)*const
+        factor = phase*(1.0)*const
+
         if phase == -1 and lrelu > 0.0:
             factor = factor/lrelu
 
         for d0 in range(rows):
-            weights.data[:, :, mid1, mid2] += factor
+            weights.data[d0, d0 % cols, mid1, mid2] += factor 
+
+
+def ConstAvg(weights, bias, gain, const = 1.0, phase = 1, lrelu = 0.0):
+
+    rows = weights.size(0)
+    cols = weights.size(1)
+
+    if const < 1.0:
+        k = cols * weights.size(2) * weights.size(3)
+        weights.data.normal_(0, math.sqrt(gain*(1.0-const) / k))
+    else: 
+        nn.init.constant_(weights, 0)
+
+    if bias is not None:
+        nn.init.constant_(bias, 0)
+
+    if const > 0.0:
+
+        mid1 = weights.size(2) // 2
+        mid2 = weights.size(3) // 2
+        factor = phase*(1.0)*const/cols
+
+        if phase == -1 and lrelu > 0.0:
+            factor = factor/lrelu
+
+        weights.data[:, :, mid1, mid2] += factor 
 
 
 def ConstDeltaOrthogonal(weights, bias, gain, const = 1.0):
