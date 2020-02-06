@@ -64,7 +64,7 @@ class BasicBlock(nn.Module):
 ##        if self.equalInOut:
 
 
-        if i in [15]:
+        if i in [4,5,6,7]:
             ConstAvg(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu')*(1.0+self.lrelu), self.const, phase, self.lrelu)
             print("Avg init: %s %d",self.relu, phase)
 
@@ -165,9 +165,9 @@ class LRNet(nn.Module):
         
 ##        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
 
-        ##ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
-        ConstIdentity(self.conv1.weight, self.conv1.bias, 1.0 , 1.0, 1, 0.0)
-        print("first identity")
+        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
+        ##ConstIdentity(self.conv1.weight, self.conv1.bias, 1.0 , 1.0, 1, 0.0)
+        ##print("first identity")
 
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,0)
         self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,n)

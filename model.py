@@ -35,10 +35,15 @@ class BasicBlock(nn.Module):
         ##print("Use fixup:")
         ##print(self.use_fixup)
         self.noise = noise.Noise(0.0,0.0)       
+
         self.bn = nn.BatchNorm2d(in_planes)
+
+##        self.bn = nn.BatchNorm2d(in_planes)
 ##        self.relu = nn.Softplus()
 ##        self.relu = Swish()
         self.relu = nn.ReLU(inplace=True)
+
+
 ##        self.relu = nn.Hardtanh()
         print(self.relu)
 
@@ -107,8 +112,14 @@ class BasicBlock(nn.Module):
                 ##out = self.relu(x_out)
             else:
                 x_out = self.bn(x)
-                ##out = x_out
-            out = self.conv(self.relu(x_out))
+            ##x_out = x
+            ##out = x_out
+            ##out = self.relu(self.conv(x_out + self.biases[0]))
+
+            ##out = self.conv(self.relu(x_out))
+            out = self.conv(x_out)
+            ##out = self.relu(self.conv(x_out))
+            ##out = self.relu(self.bn(self.conv(x_out)))
             ##out = self.noise(out)
             if self.droprate > 0:
                 out = F.dropout(out, p=self.droprate, training=self.training)
@@ -154,89 +165,6 @@ class NetworkBlock(nn.Module):
 
     def forward(self, x):
         return self.layer(x)
-
-
-class ResNet5(nn.Module):
-    def __init__(
-        self,
-        depth,
-        num_classes,
-        widen_factor=1,
-        droprate=0.0,
-        use_bn=True,
-        use_fixup=False,
-        varnet=False,
-        noise=0.0,
-        lrelu=0.0,
-    ):
-        super(ResNet5, self).__init__()
-
-        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor, 128 * widen_factor, 256 * widen_factor]
-
-        assert (depth - 4) % 5 == 0, "You need to change the number of layers"
-        n = (depth - 4) / 5
-
-        BasicBlock.droprate = droprate
-        BasicBlock.use_bn = use_bn
-        BasicBlock.fixup_l = n * 3
-        BasicBlock.use_fixup = use_fixup
-        BasicBlock.varnet = varnet
-
-        ##print("Use fixup WideResnet:")
-        ##print(use_fixup)
-        ##print("Use BN WideResnet:")
-        ##print(use_bn)
-        block = BasicBlock
-
-        self.conv1 = nn.Conv2d(
-            3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False
-        )
-        k = (
-            self.conv1.kernel_size[0]
-            * self.conv1.kernel_size[1]
-            * self.conv1.out_channels
-        )
-        gain = torch.nn.init.calculate_gain('relu')
-        if varnet:
-            self.conv1.weight.data.normal_(0, math.sqrt(2.0 / k))
-        else:
-            makeLambdaDeltaOrthogonal(self.conv1.weight, self.conv1.bias, gain ) ##*torch.nn.init.calculate_gain('relu'))
-        
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2)
-        self.block4 = NetworkBlock(n, nChannels[3], nChannels[4], block, 2)
-        self.block5 = NetworkBlock(n, nChannels[4], nChannels[5], block, 2)
-
-
-
-        self.relu = nn.ReLU(inplace=True)
-##        self.relu = nn.Softplus()
-##        self.relu = Swish()
-        self.fc = nn.Linear(nChannels[5], num_classes)
-        self.nChannels = nChannels[5]
-
-        self.fc.bias.data.zero_()
-        self.fc.weight.data.zero_()
-
-        for m in self.modules():
-            if isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.block1(out)
-        out = self.block2(out)
-        out = self.block3(out)
-        out = self.block4(out)
-        out = self.block5(out)
-
-        out = self.relu(out)
-        out = F.avg_pool2d(out, 8)
-        out = out.view(-1, self.nChannels)
-        return self.fc(out)
-
 
 
 class WideResNet(nn.Module):
