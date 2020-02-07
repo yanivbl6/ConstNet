@@ -13,6 +13,11 @@ import torch.nn.functional as F
 
 import noise
 
+
+def get_Q(t,dims=[0]):
+    a = t - torch.mean(t,[0])
+    return a*a
+
 class Swish(nn.Module):
 
     def forward(self, input):
@@ -28,7 +33,7 @@ class BasicBlock(nn.Module):
     fixup_l = 12
     varnet = False
     sigmaW = 1.0
-
+    writer = None
     def __init__(self, in_planes, out_planes, stride):
         super(BasicBlock, self).__init__()
         
@@ -37,6 +42,9 @@ class BasicBlock(nn.Module):
         self.noise = noise.Noise(0.0,0.0)       
 
         self.bn = nn.BatchNorm2d(in_planes)
+
+
+        self.writer = writer
 
 ##        self.bn = nn.BatchNorm2d(in_planes)
 ##        self.relu = nn.Softplus()
@@ -159,12 +167,12 @@ class NetworkBlock(nn.Module):
         for i in range(int(nb_layers)):
             _in_planes = i == 0 and in_planes or out_planes
             _stride = i == 0 and stride or 1
-            layers.append(block(_in_planes, out_planes, _stride))
+            layers.append(block(_in_planes, out_planes, _stride))       
 
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.layer(x)
+        return self.layer(x), 
 
 
 class WideResNet(nn.Module):
@@ -180,6 +188,7 @@ class WideResNet(nn.Module):
         noise=0.0,
         lrelu=0.0,
         sigmaW = 1.0,
+        writer = writer,
     ):
         super(WideResNet, self).__init__()
 
@@ -194,6 +203,7 @@ class WideResNet(nn.Module):
         BasicBlock.use_fixup = use_fixup
         BasicBlock.varnet = varnet
         BasicBlock.sigmaW = sigmaW
+        BasicBlock.writer = writer
 
 
 

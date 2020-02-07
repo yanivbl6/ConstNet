@@ -11,6 +11,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+def getQ(T):
+    t = T.detach()
+    s = t.shape
+    a = t - torch.mean(t,[1]).view(s[0],1,s[2],s[3]).expand_as(t)
+
+    return torch.mean(a*a), torch.mean(t*t)
+
+
 class BasicBlock(nn.Module):
     droprate = 0.0
     use_bn = True
@@ -18,17 +27,20 @@ class BasicBlock(nn.Module):
     fixup_l = 12
     const = 1.0
     lrelu = 0.0
+    writer = None
+    init = []
     def __init__(self, in_planes, out_planes, stride,i):
 
-
-
         super(BasicBlock, self).__init__()
-
+       
 
         if i % 2:
             phase = -1
         else:
             phase = 1
+
+
+        self.i = i
         ##print("Use fixup:")
         ##print(self.use_fixup)
         
@@ -64,7 +76,7 @@ class BasicBlock(nn.Module):
 ##        if self.equalInOut:
 
 
-        if i in [4,5,6,7]:
+        if i in self.init:
             ConstAvg(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu')*(1.0+self.lrelu), self.const, phase, self.lrelu)
             print("Avg init: %s %d",self.relu, phase)
 
@@ -73,41 +85,66 @@ class BasicBlock(nn.Module):
             print("Identity init: %s %d",self.relu, phase)
 
 
+
 ##        else:
 ##            ConstDeltaOrthogonal(self.conv.weight, self.conv.bias, torch.nn.init.calculate_gain('relu'),self.const)
 
 
+        self.step= 0
 
     def forward(self, x):
 
+
+        
+
         out = self.relu(self.conv(x + self.biases[0]))
-
-
+        
         if self.droprate > 0:
             out = F.dropout(out, p=self.droprate, training=self.training)
 
         if self.use_bn:
             out = self.bn(out)
 
-        return out
+        y = torch.autograd.Variable(out, requires_grad=True)
+        y.retain_grad()
+        y.requires_grad_()
+        ##self.step = self.step + 1
+        ##print("%d %d "%  (self.step, self.i))
+        ##self.writer.add_scalar('Variance_%d' %  self.i , getQ(out) , self.step) 
+        return y, getQ(out) 
 
 class NetworkBlock(nn.Module):
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride,pos):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride,pos,dev):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, pos)
+        ##self.layer = 
+        self._make_layer(block, in_planes, out_planes, nb_layers, stride, pos,dev)
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride,pos):
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride,pos,dev):
         layers = []
 
         for i in range(int(nb_layers)):
             _in_planes = i == 0 and in_planes or out_planes
             _stride = i == 0 and stride or 1
-            layers.append(block(_in_planes, out_planes, _stride,i+pos))
+            layers.append(block(_in_planes, out_planes, _stride,i+pos).cuda(torch.device(dev)))
 
-        return nn.Sequential(*layers)
+        ##return nn.Sequential(*layers)
+
+        self.layers = layers
 
     def forward(self, x):
-        return self.layer(x)
+        out = x
+        outs = []
+        ys = []
+        for op in self.layers:
+            ##print(x)
+            out, q = op(out)
+            ##print(q)
+            outs.append(q)
+            ys.append(out)
+        return out, outs, ys
+
+
+##        return self.layer(x)
 
 
 class LRNet(nn.Module):
@@ -123,8 +160,15 @@ class LRNet(nn.Module):
         noise=0.0,
         lrelu=0.0,
         sigmaW=1.0,
+        writer = None,
+        init = "1_iiii_iiii_iiii",
+        device = "cpu",
     ):
         super(LRNet, self).__init__()
+
+
+        
+
 
         if varnet:
             noise=1.0
@@ -140,13 +184,24 @@ class LRNet(nn.Module):
         assert (depth - 4) % 3 == 0, "You need to change the number of layers"
         n = (depth - 4) / 3
 
+
+
+        initial = []
+        init = init.strip('_')
+        init = init.replace("_","")
+        for k in range(1,len(init)):
+            if init[k] =='1':
+                initial.append(k-1)
+
+
         BasicBlock.droprate = droprate
         BasicBlock.use_bn = use_bn
         BasicBlock.fixup_l = n * 3
         BasicBlock.use_fixup = use_fixup
         BasicBlock.const = 1.0-noise
+        BasicBlock.init = initial
         BasicBlock.lrelu = lrelu
-
+        BasicBlock.writer = writer
 
         ##print("Use fixup WideResnet:")
         ##print(use_fixup)
@@ -164,14 +219,15 @@ class LRNet(nn.Module):
         )
         
 ##        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
+        if init[0] == "1":
+            ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
+        else:
+            ConstIdentity(self.conv1.weight, self.conv1.bias, 1.0 , 1.0, 1, 0.0)
+            print("first identity")
 
-        ConstDeltaOrthogonal(self.conv1.weight, self.conv1.bias, torch.nn.init.calculate_gain('relu'), 1.0 - noise)
-        ##ConstIdentity(self.conv1.weight, self.conv1.bias, 1.0 , 1.0, 1, 0.0)
-        ##print("first identity")
-
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,0)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,n)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,2*n)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,0,device)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,n,device)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,2*n,device)
 
         if lrelu ==0.0:
             self.relu = nn.ReLU(inplace=True)
@@ -193,14 +249,32 @@ class LRNet(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x):
+
+        ys = []
+        
         out = self.conv1(x)
-        out = self.block1(out)
-        out = self.block2(out)
-        out = self.block3(out)
+        
+        l = [getQ(out)]
+
+        out, Qs0 ,y  = self.block1(out)
+
+        ys  = ys + y
+        l = l + Qs0 
+              
+        out, Qs1 ,y = self.block2(out)
+        
+        ys  = ys + y
+        l = l + Qs1       
+        out, Qs2 ,y = self.block3(out)
+        
+        ys  = ys + y
+        l = l + Qs2      
         out = self.relu(out)
+
         out = F.avg_pool2d(out, 8)
         out = out.view(-1, self.nChannels)
-        return self.fc(out)
+
+        return self.fc(out) , l, ys
 
 
 

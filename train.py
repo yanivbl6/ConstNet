@@ -97,7 +97,11 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--dir", default="/home/ehoffer/Datasets", type=str, help="dataset directory"
+    "--init", default="None", type=str, help="rlnet init"
+)
+
+parser.add_argument(
+    "--dir", default="/home/NAME/Datasets", type=str, help="dataset directory"
 )
 
 parser.add_argument(
@@ -176,6 +180,15 @@ parser.add_argument(
 )
 
 parser.set_defaults(augment=True)
+
+
+def getQ(T):
+    t = T.detach()
+    s = t.shape
+    a = t - torch.mean(t,[1]).view(s[0],1,s[2],s[3]).expand_as(t)
+    return torch.mean(a*a)
+
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -361,6 +374,10 @@ def main2(args):
 
     torch.backends.cudnn.deterministic = not args.cudaNoise
 
+
+    if args.init != "None":
+        args.name = "rlnet_%s" % args.init
+
     if args.tensorboard:
         configure(f"runs/{args.name}")
 
@@ -485,9 +502,12 @@ def main2(args):
         noise = args.noise,
         lrelu = args.lrelu,
         sigmaW = args.sigmaW,
+        writer = writer,
+        init = args.init,
+        device = ("cuda:%d" % int(args.device[0]))
     )
     
-    draw(args,model)
+    ##draw(args,model)
     
     param_num = sum([p.data.nelement() for p in model.parameters()])
     
@@ -639,7 +659,7 @@ def main2(args):
             train(args,train_loader, model, criterion, optimizer, epoch, pruner_retrain, writer)
 
             prec1 = validate(args,val_loader, model, criterion, epoch,writer)
-            correlation.measure_correlation(model, epoch, writer=writer)    
+            ##correlation.measure_correlation(model, epoch, writer=writer)    
 
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
@@ -680,6 +700,7 @@ def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer)
     reg_loss = 0.0
     train_loss = 0.0
     end = time.time()
+
     for i, (inputs, target) in enumerate(train_loader):
 
         target = target.cuda()
@@ -691,7 +712,8 @@ def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer)
         ##input_var = torch.autograd.Variable(input)
         ##target_var = torch.autograd.Variable(target)
 
-        outputs = model(inputs)
+        outputs, Qs, Ys = model(inputs)
+
         ##loss = criterion(output, target_var)
         loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
 ##        print("loss:")
@@ -709,14 +731,42 @@ def train(args,train_loader, model, criterion, optimizer, epoch, pruner, writer)
 ##        top1.update(prec1.item(), input.size(0))
 
         optimizer.zero_grad()
+
+
+
+        for y in Ys:
+            y.retain_grad()
+
+
+
         loss.backward()
+
+
         optimizer.step()
+
+
+
 
         if pruner is not None:
             pruner.prune(update_state=False)
 
         batch_time.update(time.time() - end)
         end = time.time()
+
+
+        kwalt = epoch*len(train_loader)+i
+        if writer is not None:
+            for j,q in enumerate(Qs):
+                writer.add_scalar("variances %d" % j, q.cpu().numpy(), kwalt)
+
+
+            for l,y in enumerate(Ys):
+                if y.grad is not None:
+                    writer.add_scalar("grad %d" % (l-j), getQ(y.grad).cpu().numpy(), kwalt)
+
+##            writer.add_scalars("variancess", { "%d"% j :  q.cpu().numpy() for j,q in enumerate(Qs)}, i)
+
+
 
         if 0:
             if i % args.print_freq == 0:
@@ -753,7 +803,7 @@ def validate(args,val_loader, model, criterion, epoch, writer, quiet=False):
         target_var = Variable(target)
 
         with torch.no_grad():
-            output = model(input_var)
+            output,Qs, Ys = model(input_var)
         loss = criterion(output, target_var)
 
         prec1 = accuracy(output.data, target, topk=(1,))[0]
