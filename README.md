@@ -1,3 +1,5 @@
+Code is based on the repository: https://github.com/valilenk/fixup.git
+
 # Wide Residual Network with optional Fixup initialization
 
 The code presents the implementation of Fixup as an option for standard Wide ResNet. When BatchNorm and Fixup are enabled simultaneously, Fixup initialization and the standard structure of the residual block are used.
